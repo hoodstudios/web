@@ -1,20 +1,37 @@
-/* HOOD STUDIO — cuentas, jugadores, minijuego
- * NOTA: GitHub Pages no tiene servidor. Cuentas, tabla de jugadores y ranking
- * se guardan en el navegador de cada persona (localStorage), por lo que cada
- * visitante solo ve sus propios datos. Para tablas compartidas entre todos
- * hace falta un backend (Firebase / Supabase). */
+/* HOOD STUDIO — cuentas, jugadores, minijuego (Firebase)
+ * Cuentas: Firebase Authentication (correo falso nombre@hoodstudio.app + contraseña).
+ * Jugadores y ranking: Firestore (colecciones "players" y "scores"), compartidos por todos. */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import {
+  getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
+  signInWithEmailAndPassword, signOut, deleteUser
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import {
+  getFirestore, doc, getDoc, setDoc, getDocs, collection, query, orderBy, limit, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCStG20rFbespxXq39zbGCbIERhWmWWRtQ",
+  authDomain: "hoodstudioweb.firebaseapp.com",
+  projectId: "hoodstudioweb",
+  storageBucket: "hoodstudioweb.firebasestorage.app",
+  messagingSenderId: "173223418478",
+  appId: "1:173223418478:web:be7f06f9c500612f42647f"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app), db = getFirestore(app);
+
 (() => {
 "use strict";
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
-const K = { u: "hood_users_v2", s: "hood_session_v2", r: "hood_rank_v2" };
-["hood_users", "hood_session"].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} }); // borra el registro anterior
-const rd = (k, f) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? f : v; } catch (e) { return f; } };
-const wr = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const headUrl = n => "https://minotar.net/helm/" + encodeURIComponent(n) + "/64.png";
 const DEF = headUrl("MHF_Steve");
-const session = () => rd(K.s, null);
-const me = () => { const s = session(); return s ? (rd(K.u, {})[s.key] || null) : null; };
+const okAv = a => typeof a === "string" && (a.startsWith("https://minotar.net/helm/") || a.startsWith("data:image/png;base64,")) ? a : DEF;
+const mail = n => n.toLowerCase() + "@hoodstudio.app";
+
+let profile = null, ready = false, signing = false;
+const me = () => profile;
 
 /* ---------- Vistas ---------- */
 const V = ["inicio", "proyectos", "calendario", "jugadores", "juego", "creditos"];
@@ -34,8 +51,17 @@ if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
   setInterval(() => { slides[si].classList.remove("on"); si = (si + 1) % slides.length; slides[si].classList.add("on"); }, 5000);
 
 /* ---------- Cuentas ---------- */
-const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
-const hashPw = async (p, salt) => hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(salt + ":" + p)));
+function fe(e) { // errores de Firebase -> mensajes en español
+  const c = (e && e.code) || "";
+  if (c === "auth/email-already-in-use") return "Ese nombre ya está registrado.";
+  if (c === "auth/invalid-credential" || c === "auth/wrong-password" || c === "auth/user-not-found" || c === "auth/invalid-email") return "Usuario o contraseña incorrectos.";
+  if (c === "auth/weak-password") return "La contraseña debe tener al menos 6 caracteres.";
+  if (c === "auth/too-many-requests") return "Demasiados intentos. Espera un momento e inténtalo de nuevo.";
+  if (c === "auth/network-request-failed") return "Sin conexión. Revisa tu internet (o el bloqueador del navegador).";
+  if (c === "auth/operation-not-allowed") return "El registro con correo/contraseña no está activado en Firebase.";
+  if (c === "permission-denied" || c === "firestore/permission-denied") return "Permiso denegado por las reglas de Firestore.";
+  console.warn(e); return "Ocurrió un error. Inténtalo de nuevo.";
+}
 function skinToHead(file) {
   return new Promise((ok, no) => {
     const img = new Image(), url = URL.createObjectURL(file);
@@ -45,34 +71,51 @@ function skinToHead(file) {
       const x = c.getContext("2d"); x.imageSmoothingEnabled = false;
       x.drawImage(img, 8, 8, 8, 8, 0, 0, 64, 64);
       if (img.height === 64) x.drawImage(img, 40, 8, 8, 8, 0, 0, 64, 64);
-      URL.revokeObjectURL(url); ok(c.toDataURL());
+      URL.revokeObjectURL(url); ok(c.toDataURL("image/png"));
     };
     img.onerror = () => no(new Error("img")); img.src = url;
   });
 }
+async function loadProfile(user) {
+  profile = null;
+  if (!user) return;
+  try {
+    const s = await getDoc(doc(db, "players", user.uid));
+    if (s.exists()) { const d = s.data(); profile = { uid: user.uid, name: d.name, avatar: okAv(d.avatar), medals: d.medals || 0 }; }
+  } catch (e) { console.warn(e); }
+}
 async function signUp(name, pw, prem, file) {
-  const users = rd(K.u, {}), key = name.toLowerCase();
-  if (users[key]) return "Ese nombre ya está registrado.";
   let avatar = DEF;
   if (prem) avatar = headUrl(name);
   else if (file) { try { avatar = await skinToHead(file); } catch (e) { return "La skin debe ser un PNG de 64×64 (o 64×32)."; } }
-  const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
-  users[key] = { name, salt, hash: await hashPw(pw, salt), avatar, medals: 0 };
-  if (!wr(K.u, users)) return "No se pudo guardar. Activa el almacenamiento del navegador.";
-  wr(K.s, { key }); return null;
+  signing = true;
+  try {
+    let cred;
+    try { cred = await createUserWithEmailAndPassword(auth, mail(name), pw); } catch (e) { return fe(e); }
+    try { await setDoc(doc(db, "players", cred.user.uid), { name, avatar, medals: 0, createdAt: serverTimestamp() }); }
+    catch (e) { try { await deleteUser(cred.user); } catch (_) {} return fe(e); }
+    profile = { uid: cred.user.uid, name, avatar, medals: 0 };
+    return null;
+  } finally { signing = false; }
 }
 async function logIn(name, pw) {
-  const key = name.toLowerCase(), u = rd(K.u, {})[key];
-  if (!u || (await hashPw(pw, u.salt)) !== u.hash) return "Usuario o contraseña incorrectos.";
-  wr(K.s, { key }); return null;
+  signing = true;
+  try {
+    let cred;
+    try { cred = await signInWithEmailAndPassword(auth, mail(name), pw); } catch (e) { return fe(e); }
+    await loadProfile(cred.user);
+    if (!profile) { await signOut(auth); return "No se encontró el perfil de esta cuenta."; }
+    return null;
+  } finally { signing = false; }
 }
 function renderAuth() {
   const box = $("#auth"), u = me(); box.textContent = "";
+  if (!ready) return;
   const mk = (t, c, f) => { const b = document.createElement("button"); b.className = c; b.textContent = t; b.onclick = f; return b; };
   if (u) {
     const d = document.createElement("div"); d.className = "me";
     d.innerHTML = `<img src="${esc(u.avatar)}" alt=""><span>${esc(u.name)}</span>`;
-    box.append(d, mk("Salir", "btn", () => { localStorage.removeItem(K.s); renderAuth(); Game.refresh(); }));
+    box.append(d, mk("Salir", "btn", () => signOut(auth)));
   } else box.append(mk("Iniciar sesión", "btn", () => openM("login")), mk("Registrarse", "btn solid", () => openM("signup")));
 }
 
@@ -94,7 +137,6 @@ form.onsubmit = async e => {
   const name = $("#un").value.trim(), pw = $("#pw").value;
   if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return void (err.textContent = "Tu nombre de Minecraft tiene de 3 a 16 caracteres: letras, números o guion bajo.");
   if (pw.length < 6) return void (err.textContent = "La contraseña debe tener al menos 6 caracteres.");
-  if (!crypto.subtle) return void (err.textContent = "Abre la página con https para crear cuentas.");
   $("#go").disabled = true;
   const r = mode === "login" ? await logIn(name, pw) : await signUp(name, pw, $("#prem").checked, $("#skin").files[0]);
   $("#go").disabled = false;
@@ -103,26 +145,36 @@ form.onsubmit = async e => {
 };
 
 /* ---------- Jugadores ---------- */
-function renderPlayers() {
-  const list = Object.values(rd(K.u, {})).sort((a, b) => b.medals - a.medals || a.name.localeCompare(b.name));
-  $("#players").innerHTML = list.length
-    ? list.map((u, i) => `<tr><td>${i + 1}</td><td><span class="pl"><img src="${esc(u.avatar)}" alt="">${esc(u.name)}</span></td><td>${u.medals}</td></tr>`).join("")
-    : `<tr><td colspan="3" class="empty">Aún no hay jugadores registrados.</td></tr>`;
+async function renderPlayers() {
+  const tb = $("#players");
+  try {
+    const snap = await getDocs(query(collection(db, "players"), orderBy("medals", "desc"), limit(100)));
+    const list = snap.docs.map(d => d.data()).sort((a, b) => (b.medals || 0) - (a.medals || 0) || String(a.name).localeCompare(String(b.name)));
+    tb.innerHTML = list.length
+      ? list.map((u, i) => `<tr><td>${i + 1}</td><td><span class="pl"><img src="${esc(okAv(u.avatar))}" alt="">${esc(u.name)}</span></td><td>${Number(u.medals) || 0}</td></tr>`).join("")
+      : `<tr><td colspan="3" class="empty">Aún no hay jugadores registrados.</td></tr>`;
+  } catch (e) { console.warn(e); tb.innerHTML = `<tr><td colspan="3" class="empty">No se pudo cargar la lista de jugadores.</td></tr>`; }
 }
 
 /* ---------- Ranking del juego ---------- */
-function renderRank() {
-  const r = rd(K.r, []);
-  $("#rank").innerHTML = r.length
-    ? r.map((x, i) => `<tr><td>${i + 1}</td><td><span class="pl"><img src="${esc(x.avatar)}" alt="">${esc(x.name)}</span></td><td>${x.score}</td></tr>`).join("")
-    : `<tr><td class="empty">Sé el primero en el ranking.</td></tr>`;
+async function renderRank() {
+  const tb = $("#rank");
+  try {
+    const snap = await getDocs(query(collection(db, "scores"), orderBy("score", "desc"), limit(10)));
+    const r = snap.docs.map(d => d.data());
+    tb.innerHTML = r.length
+      ? r.map((x, i) => `<tr><td>${i + 1}</td><td><span class="pl"><img src="${esc(okAv(x.avatar))}" alt="">${esc(x.name)}</span></td><td>${Number(x.score) || 0}</td></tr>`).join("")
+      : `<tr><td class="empty">Sé el primero en el ranking.</td></tr>`;
+  } catch (e) { console.warn(e); tb.innerHTML = `<tr><td class="empty">No se pudo cargar el ranking.</td></tr>`; }
 }
-function saveScore(score) {
+async function saveScore(score) {
   const u = me(); if (!u || !score) return;
-  const r = rd(K.r, []), i = r.findIndex(x => x.name === u.name);
-  if (i >= 0) { if (r[i].score >= score) return; r[i].score = score; r[i].avatar = u.avatar; }
-  else r.push({ name: u.name, avatar: u.avatar, score });
-  r.sort((a, b) => b.score - a.score); wr(K.r, r.slice(0, 10)); renderRank();
+  try {
+    const ref = doc(db, "scores", u.uid), snap = await getDoc(ref);
+    if (snap.exists() && snap.data().score >= score) return;
+    await setDoc(ref, { name: u.name, avatar: u.avatar, score });
+    renderRank();
+  } catch (e) { console.warn(e); }
 }
 
 /* ---------- Minijuego ---------- */
@@ -202,6 +254,13 @@ const Game = (() => {
   };
 })();
 
+/* ---------- Arranque ---------- */
 $("#yr").textContent = new Date().getFullYear();
-renderAuth(); route();
+route();
+onAuthStateChanged(auth, async user => {
+  if (signing) return; // signUp/logIn manejan su propio perfil
+  await loadProfile(user);
+  ready = true; renderAuth(); Game.refresh();
+  if (location.hash === "#jugadores") renderPlayers();
+});
 })();
