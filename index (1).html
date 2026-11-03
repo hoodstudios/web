@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HOOD STUDIO</title>
+  <meta name="description" content="HOOD STUDIO (Hub.Of.Original.Development): estudio sin fines de lucro dedicado a crear servidores de Minecraft.">
+  <link rel="icon" href="assets/logo.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Barlow:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="menu-btn" id="menuBtn" aria-label="Abrir menú" aria-expanded="false" aria-controls="sidebar">
+        <span></span><span></span><span></span>
+      </button>
+      <a class="brand" href="#inicio" aria-label="HOOD STUDIO, inicio">
+        <img src="assets/logo.jpg" alt="" width="40" height="40">
+        <span>HOOD STUDIO</span>
+      </a>
+    </div>
+
+    <div class="topbar-right" id="authArea">
+      <!-- Lo rellena js/main.js según haya sesión o no -->
+    </div>
+  </header>
+
+  <div class="scrim" id="scrim" hidden></div>
+
+  <nav class="sidebar" id="sidebar" aria-label="Menú principal">
+    <a href="#inicio" data-link="inicio">Inicio</a>
+    <a href="#quienes-somos" data-link="quienes-somos">¿Quiénes somos?</a>
+    <a href="#hardhood" data-link="hardhood">Hardhood: Cataclysm</a>
+    <a href="https://discord.gg/YqwfqmcMbW" target="_blank" rel="noopener">Discord</a>
+    <a href="mailto:hood21pe@gmail.com">Contacto</a>
+  </nav>
+
+  <main>
+
+    <!-- INICIO -->
+    <section class="view" id="view-inicio">
+      <div class="hero">
+        <h1 class="hero-title">HOOD<br>STUDIO</h1>
+        <p class="hero-sub">Hub.Of.Original.Development</p>
+
+        <dl class="contact">
+          <div>
+            <dt>Discord</dt>
+            <dd><a href="https://discord.gg/YqwfqmcMbW" target="_blank" rel="noopener">discord.gg/YqwfqmcMbW</a></dd>
+          </div>
+          <div>
+            <dt>Contacto owner</dt>
+            <dd><a href="mailto:hood21pe@gmail.com">hood21pe@gmail.com</a></dd>
+          </div>
+        </dl>
+      </div>
+
+      <a class="project" href="#hardhood" aria-label="Ver Hardhood: Cataclysm">
+        <img src="assets/hardhood-cataclysm.png" alt="Hardhood: Cataclysm">
+      </a>
+    </section>
+
+    <!-- QUIÉNES SOMOS -->
+    <section class="view" id="view-quienes-somos" hidden>
+      <h2 class="page-title">¿Quiénes somos?</h2>
+
+      <div class="about">
+        <p class="lead">
+          Somos un estudio dedicado a la creación de servidores de Minecraft, sin fines de lucro.
+          Usamos distintas herramientas para crear una experiencia multijugador con una comunidad activa.
+        </p>
+
+        <div class="mv">
+          <article>
+            <h3>Misión</h3>
+            <p>Crear con amor, un espacio de creatividad y libertad, donde todos puedan sentirse auténticos y puedan crear valor en sus vidas y en las personas que los rodean.</p>
+          </article>
+          <article>
+            <h3>Visión</h3>
+            <p>Convertirnos en un estudio reconocido por crear experiencias profundas y originales en Minecraft, y por ser un espacio donde las personas puedan formarse, crecer y descubrir su potencial creativo.</p>
+          </article>
+        </div>
+      </div>
+
+      <figure class="team">
+        <img src="assets/equipo.png" alt="El equipo de HOOD STUDIO en Minecraft">
+      </figure>
+    </section>
+
+    <!-- HARDHOOD -->
+    <section class="view" id="view-hardhood" hidden>
+      <h2 class="page-title">Hardhood: Cataclysm</h2>
+      <img class="project-logo" src="assets/hardhood-cataclysm.png" alt="Hardhood: Cataclysm">
+      <p class="lead">Nuestro proyecto actual. Únete al Discord para enterarte de las novedades y entrar a la comunidad.</p>
+      <a class="btn btn-solid" href="https://discord.gg/YqwfqmcMbW" target="_blank" rel="noopener">Unirme al Discord</a>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <span>© <span id="year"></span> HOOD STUDIO</span>
+  </footer>
+
+  <!-- MODAL LOGIN / REGISTRO -->
+  <div class="modal" id="authModal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <button class="modal-close" id="authClose" aria-label="Cerrar">×</button>
+
+      <div class="tabs" role="tablist">
+        <button role="tab" id="tabLogin" aria-selected="true" data-mode="login">Iniciar sesión</button>
+        <button role="tab" id="tabSignup" aria-selected="false" data-mode="signup">Registrarse</button>
+      </div>
+
+      <h2 id="authTitle" class="sr-only">Cuenta</h2>
+
+      <form id="authForm" novalidate>
+        <label for="username">Nombre de usuario</label>
+        <input id="username" name="username" type="text" autocomplete="username" maxlength="20" required>
+
+        <label for="password">Contraseña</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" minlength="6" required>
+
+        <p class="form-error" id="authError" role="alert"></p>
+
+        <button type="submit" class="btn btn-solid" id="authSubmit">Iniciar sesión</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
