@@ -30,7 +30,7 @@
   </nav>
   <div class="auth" id="auth"></div>
 </header>
- 
+
 <main>
   <section class="view" id="v-inicio">
     <div class="hero">
@@ -47,7 +47,7 @@
         <div class="slide"><small>Próximamente</small><b class="soon">Nuevo proyecto<br>en camino</b></div>
       </a>
     </div>
- 
+
     <div class="about">
       <h2>¿Quiénes somos?</h2>
       <p>Somos un estudio dedicado a la creación de servidores de Minecraft, sin fines de lucro. Usamos distintas herramientas para crear una experiencia multijugador con una comunidad activa.</p>
@@ -58,16 +58,21 @@
       <img class="team" src="equipo.png" alt="El equipo de HOOD STUDIO en Minecraft">
     </div>
   </section>
- 
+
   <section class="view" id="v-proyectos" hidden><h2>Proyectos</h2><p class="muted">Próximamente</p></section>
   <section class="view" id="v-calendario" hidden><h2>Calendario</h2><p class="muted">Próximamente</p></section>
- 
+
   <section class="view" id="v-jugadores" hidden>
     <h2>Jugadores</h2>
     <p class="muted">Ordenados por medallas.</p>
     <div class="card tablewrap"><table><thead><tr><th>#</th><th>Jugador</th><th>Medallas</th></tr></thead><tbody id="players"></tbody></table></div>
   </section>
- 
+
+  <section class="view" id="v-perfil" hidden>
+    <a class="back" href="#jugadores">← Jugadores</a>
+    <div id="perfil-box"></div>
+  </section>
+
   <section class="view" id="v-juego" hidden>
     <h2>Juego</h2>
     <div class="game">
@@ -78,12 +83,12 @@
       <div class="card"><h3>Ranking</h3><table><tbody id="rank"></tbody></table></div>
     </div>
   </section>
- 
+
   <section class="view" id="v-creditos" hidden><h2>Créditos</h2><p class="muted">Próximamente</p></section>
 </main>
- 
+
 <footer class="foot">© <span id="yr"></span> HOOD STUDIO</footer>
- 
+
 <div class="modal" id="modal" hidden>
   <div class="box card" role="dialog" aria-modal="true" aria-label="Cuenta">
     <button class="x" id="mx" aria-label="Cerrar">×</button>
@@ -103,9 +108,12 @@
       <p class="err" id="err" role="alert"></p>
       <button class="btn solid" id="go" type="submit">Iniciar sesión</button>
     </form>
+    <div id="glogin">
+      <p class="muted small">¿Olvidaste tu contraseña? Si vinculaste tu cuenta de Google en tu perfil, entra con ella y crea una contraseña nueva.</p>
+      <button class="btn gbtn" id="gbtn" type="button">Entrar con Google</button>
+    </div>
   </div>
 </div>
 <script type="module" src="main.js"></script>
 </body>
 </html>
- 
