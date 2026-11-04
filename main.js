@@ -60,18 +60,37 @@ function route() {
   stopAvatar();
   const [h, arg] = hashParts(), cur = V.includes(h) ? h : "inicio";
   V.forEach(v => $("#v-" + v).hidden = v !== cur);
-  $$(".nav a").forEach(a => a.classList.toggle("on", a.dataset.v === (cur === "perfil" ? "jugadores" : cur)));
+  $$(".nav a").forEach(a => a.classList.toggle("on", a.dataset.v === (["jugadores", "perfil", "juego"].includes(cur) ? "comunidad" : cur)));
   if (cur === "jugadores") renderPlayers();
   if (cur === "perfil") renderProfile(arg);
   if (cur === "juego") { renderRank(); Game.show(); } else Game.stop();
-  window.scrollTo(0, 0);
+  window.scrollTo(0, 0); if (cur === "inicio") fitSub();
 }
 addEventListener("hashchange", route);
 
-/* ---------- Slider de proyectos ---------- */
-const slides = $$(".slide"); let si = 0;
-if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
-  setInterval(() => { slides[si].classList.remove("on"); si = (si + 1) % slides.length; slides[si].classList.add("on"); }, 5000);
+/* ---------- Galería del inicio (ruleta) ---------- */
+/* Añade aquí tus imágenes (ej. "galeria/foto1.jpg"). */
+const GALERIA = ["equipo.png", "hardhood-cataclysm.png"];
+let gi = 0, gtimer = 0;
+const gimg = $("#galimg"), gdots = $("#gdots");
+gdots.innerHTML = GALERIA.map(() => "<i></i>").join("");
+function gshow(i) {
+  gi = (i + GALERIA.length) % GALERIA.length; gimg.classList.add("out");
+  setTimeout(() => { gimg.src = GALERIA[gi]; gimg.classList.remove("out"); }, 250);
+  [...gdots.children].forEach((d, n) => d.classList.toggle("on", n === gi));
+}
+function gauto() { clearInterval(gtimer); if (!matchMedia("(prefers-reduced-motion: reduce)").matches) gtimer = setInterval(() => gshow(gi + 1), 6000); }
+$("#gprev").onclick = () => { gshow(gi - 1); gauto(); }; $("#gnext").onclick = () => { gshow(gi + 1); gauto(); };
+gimg.src = GALERIA[0]; gdots.children[0].classList.add("on"); gauto();
+/* Alinea "Hub.Of.Original.Development" al ancho de HOOD/STUDIO */
+function fitSub() {
+  const h = $(".hl h1"), p = $(".hl .sub"); if (!h || !p || $("#v-inicio").hidden) return;
+  p.style.fontSize = "10px"; p.style.fontSize = (10 * h.getBoundingClientRect().width / p.scrollWidth) + "px";
+}
+addEventListener("resize", fitSub); if (document.fonts) document.fonts.ready.then(fitSub);
+/* Botón flotante de Discord (se puede ocultar) */
+try { if (sessionStorage.getItem("dcx")) $("#dc").hidden = true; } catch (e) {}
+$("#dcx").onclick = () => { $("#dc").hidden = true; try { sessionStorage.setItem("dcx", "1"); } catch (e) {} };
 
 /* ---------- Cuentas ---------- */
 function fe(e) { // errores de Firebase -> mensajes en español
@@ -232,7 +251,7 @@ form.onsubmit = async e => {
 async function renderPlayers() {
   const tb = $("#players");
   try {
-    const snap = await getDocs(query(collection(db, "players"), orderBy("medals", "desc"), limit(100)));
+    const snap = await getDocs(query(collection(db, "players"), limit(100)));
     const list = snap.docs.map(d => d.data()).sort((a, b) => medalCount(b) - medalCount(a) || String(a.name).localeCompare(String(b.name)));
     tb.innerHTML = list.length
       ? list.map((u, i) => `<tr><td>${i + 1}</td><td><span class="pl"><img src="${esc(okAv(u.avatar))}" alt=""><a href="${esc(pLink(u.name))}">${esc(u.name)}</a></span></td><td>${medalCount(u)}</td></tr>`).join("")
@@ -388,65 +407,80 @@ async function saveScore(score) {
 
 /* ---------- Minijuego ---------- */
 const Game = (() => {
-  const cv = $("#cv"), c = cv.getContext("2d"), W = 800, GY = 200, S = 36;
+  const cv = $("#cv"), c = cv.getContext("2d"), W = 800, GY = 200, S = 36, B = 24, BIOME_AT = 21000, MAXT = 3;
+  const IMG = {}; ["totem", "cactus", "flor", "arena", "arena-roja"].forEach(n => { const i = new Image(); i.src = "img/" + n + ".png"; IMG[n] = i; });
+  const ok = i => i.complete && i.naturalWidth > 0;
   let raf = 0, last = 0, st = "idle", s, face = new Image();
   const rnd = (a, b) => a + Math.random() * (b - a);
-  const reset = () => ({ y: GY - S, vy: 0, obs: [], tot: [], pts: [], speed: 5, dist: 0, next: 60, totems: 0, inv: 0, clouds: Array.from({ length: 4 }, () => ({ x: rnd(0, W), y: rnd(20, 90) })) });
+  const reset = () => {
+    cv.style.background = "";
+    return { y: GY - S, vy: 0, obs: [], tot: [], pts: [], speed: 5, dist: 0, next: 420, totems: 0, inv: 0, boost: 0, biome: 0, banner: 0,
+      clouds: Array.from({ length: 4 }, () => ({ x: rnd(0, W), y: rnd(20, 90) })),
+      mesas: Array.from({ length: 3 }, (_, i) => ({ x: i * 300 + rnd(0, 120), w: rnd(120, 200), h: rnd(50, 95) })) };
+  };
   function loadFace() { face = new Image(); face.src = (me() || {}).avatar || DEF; }
   function burst(x, y, cols, n) { for (let i = 0; i < n; i++) s.pts.push({ x, y, vx: rnd(-4, 4), vy: rnd(-5, 1), l: rnd(25, 50), c: cols[i % cols.length] }); }
   function jump() {
     if (st === "idle" || st === "over") { s = reset(); st = "run"; return; }
     if (s.y >= GY - S) { s.vy = -12.5; burst(80, GY, ["#7a6a40", "#a89a70"], 6); }
   }
-  function cactus(x, h) { // cactus de Minecraft, a bloques
-    c.fillStyle = "#2f7d1f"; c.fillRect(x, GY - h, 18, h);
-    c.fillStyle = "#3f9b2a"; c.fillRect(x + 2, GY - h, 6, h);
-    c.fillStyle = "#1d5412"; for (let i = 0; i < h; i += 12) { c.fillRect(x + 12, GY - h + i + 3, 3, 3); c.fillRect(x + 4, GY - h + i + 8, 3, 3); }
-    c.fillStyle = "#0d3a0a"; c.fillRect(x - 3, GY - h + 6, 3, 3); c.fillRect(x + 18, GY - h + 14, 3, 3);
-  }
-  function totem(x, y) {
-    c.fillStyle = "#e8b923"; c.fillRect(x, y, 18, 26); c.fillRect(x - 5, y + 8, 28, 8);
-    c.fillStyle = "#2e9e4a"; c.fillRect(x + 3, y + 3, 12, 6); c.fillRect(x + 7, y + 16, 4, 10);
-    c.fillStyle = "#fff6c4"; c.fillRect(x + 5, y + 4, 3, 3); c.fillRect(x + 10, y + 4, 3, 3);
-  }
   const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   function parts(k) { s.pts.forEach(q => { q.x += q.vx * k; q.y += q.vy * k; q.vy += .25 * k; q.l -= k; }); s.pts = s.pts.filter(q => q.l > 0); }
   function update(k) {
-    s.speed = Math.min(14, 5 + s.dist / 2500); s.dist += s.speed * k;
+    const bi = s.dist / 10 >= BIOME_AT ? 1 : 0;
+    if (bi !== s.biome) { s.biome = bi; s.banner = 170; cv.style.background = "linear-gradient(#3a1606,#000)"; }
+    // velocidad: sube despacio y se detiene en un tope, para que siempre sea cuestión de habilidad
+    s.speed = Math.min(bi ? 11.5 : 10.5, 5 + s.dist / 6000);
+    const v = s.speed * k; s.dist += v;
     s.vy += .7 * k; s.y = Math.min(GY - S, s.y + s.vy * k); if (s.y >= GY - S) s.vy = 0;
-    s.next -= k * s.speed / 5;
-    if (s.next <= 0) {
-      const h = rnd(32, 58); s.obs.push({ x: W + 20, w: 18, h });
-      if (Math.random() < .2) s.tot.push({ x: W + 20 + rnd(150, 260), y: rnd(95, 135), w: 18, h: 26 });
-      s.next = rnd(55, 100);
+    s.next -= v;
+    if (s.next <= 0) { // separación mínima = tiempo de salto + margen de reacción: siempre es posible
+      const r = Math.random(), n = r < .45 ? 1 : r < .85 ? 2 : 3, fl = n < 3 && Math.random() < .18;
+      s.obs.push({ x: W + 20, n, h: n * B, fl });
+      if (s.totems < MAXT && !s.tot.length && Math.random() < .05) s.tot.push({ x: W + 20 + rnd(90, 170), y: rnd(100, 130), w: 26, h: 26 });
+      s.next = s.speed * 42 + rnd(60, 300) + (fl ? s.speed * 10 : 0);
     }
-    s.obs.forEach(o => o.x -= s.speed * k); s.tot.forEach(t => t.x -= s.speed * k);
+    s.obs.forEach(o => o.x -= v); s.tot.forEach(t => t.x -= v);
     s.clouds.forEach(cl => { cl.x -= .4 * k; if (cl.x < -60) { cl.x = W + 20; cl.y = rnd(20, 90); } });
-    s.obs = s.obs.filter(o => o.x > -30); s.tot = s.tot.filter(t => t.x > -30);
+    s.mesas.forEach(m => { m.x -= 1.2 * k; if (m.x + m.w < 0) { m.x = W + rnd(0, 100); m.w = rnd(120, 200); m.h = rnd(50, 95); } });
+    s.obs = s.obs.filter(o => o.x > -30); s.tot = s.tot.filter(t => t.x > -40);
     const p = { x: 64, y: s.y + 4, w: S - 8, h: S - 8 };
-    s.tot = s.tot.filter(t => { if (hit(p, t)) { s.totems++; burst(t.x + 9, t.y + 13, ["#e8b923", "#2e9e4a", "#fff6c4"], 22); return false; } return true; });
-    if (s.inv > 0) s.inv -= k;
-    else for (const o of s.obs) if (hit(p, { x: o.x, y: GY - o.h, w: o.w, h: o.h })) {
-      if (s.totems > 0) { s.totems--; s.inv = 60; burst(80, s.y + 18, ["#e8b923", "#2e9e4a", "#fff6c4", "#ffffff"], 50); s.obs = s.obs.filter(q => q !== o); }
-      else { st = "over"; burst(80, s.y + 18, ["#f7b41e", "#ff8a3d", "#fff"], 36); saveScore(Math.floor(s.dist / 10)); }
-      break;
+    s.tot = s.tot.filter(t => { if (hit(p, t)) { s.totems = Math.min(MAXT, s.totems + 1); burst(t.x + 13, t.y + 13, ["#e8b923", "#2e9e4a", "#fff6c4"], 22); return false; } return true; });
+    if (s.inv > 0) s.inv -= k; if (s.boost > 0) s.boost -= k; if (s.banner > 0) s.banner -= k;
+    for (const o of s.obs) {
+      if (o.fl && hit(p, { x: o.x, y: GY - o.h - 16, w: B, h: 16 })) { // flor: impulso que te saca de ritmo, no mata
+        o.fl = false; s.vy = -17; s.boost = 22; burst(o.x + 12, GY - o.h - 8, ["#d2708a", "#fcb0ad", "#fa8685"], 24); continue;
+      }
+      if (s.inv <= 0 && s.boost <= 0 && hit(p, { x: o.x + 2, y: GY - o.h, w: B - 4, h: o.h })) {
+        if (s.totems > 0) { s.totems--; s.inv = 60; burst(80, s.y + 18, ["#e8b923", "#2e9e4a", "#fff6c4", "#ffffff"], 50); s.obs = s.obs.filter(q => q !== o); }
+        else { st = "over"; burst(80, s.y + 18, ["#f7b41e", "#ff8a3d", "#fff"], 36); saveScore(Math.floor(s.dist / 10)); }
+        break;
+      }
     }
     parts(k);
   }
   function draw() {
     c.clearRect(0, 0, W, 240); c.imageSmoothingEnabled = false;
-    c.fillStyle = "rgba(247,180,30,.07)"; s.clouds.forEach(cl => c.fillRect(cl.x, cl.y, 56, 14));
-    c.fillStyle = "rgba(247,180,30,.5)"; c.fillRect(0, GY, W, 2);
-    c.fillStyle = "rgba(247,180,30,.12)"; for (let x = -(s.dist % 40); x < W; x += 40) c.fillRect(x, GY + 10, 14, 3);
-    s.obs.forEach(o => cactus(o.x, o.h)); s.tot.forEach(t => totem(t.x, t.y + Math.sin(s.dist / 15) * 3));
-    if (!(st === "over") && (s.inv <= 0 || Math.floor(s.inv / 4) % 2)) c.drawImage(face, 60, s.y, S, S);
+    if (s.biome) { c.fillStyle = "rgba(190,90,30,.25)"; s.mesas.forEach(m => { c.fillRect(m.x, GY - m.h, m.w, m.h); }); c.fillStyle = "rgba(220,120,50,.4)"; s.mesas.forEach(m => c.fillRect(m.x, GY - m.h, m.w, 4)); }
+    else { c.fillStyle = "rgba(247,180,30,.07)"; s.clouds.forEach(cl => c.fillRect(cl.x, cl.y, 56, 14)); }
+    const fl = IMG[s.biome ? "arena-roja" : "arena"]; c.globalAlpha = .75;
+    for (let x = -(s.dist % 40); x < W; x += 40) { if (ok(fl)) c.drawImage(fl, x, GY, 40, 40); else { c.fillStyle = s.biome ? "#b5541c" : "#d9ca9a"; c.fillRect(x, GY, 40, 40); } }
+    c.globalAlpha = 1;
+    s.obs.forEach(o => {
+      for (let i = 0; i < o.n; i++) { if (ok(IMG.cactus)) c.drawImage(IMG.cactus, o.x, GY - (i + 1) * B, B, B); else { c.fillStyle = "#3f9b2a"; c.fillRect(o.x, GY - (i + 1) * B, B, B); } }
+      if (o.fl && ok(IMG.flor)) c.drawImage(IMG.flor, o.x, GY - o.h - B, B, B);
+    });
+    s.tot.forEach(t => { const y = t.y + Math.sin(s.dist / 15) * 3; if (ok(IMG.totem)) c.drawImage(IMG.totem, t.x, y, 26, 26); else { c.fillStyle = "#e8b923"; c.fillRect(t.x, y, 26, 26); } });
+    if (st !== "over" && (s.inv <= 0 || Math.floor(s.inv / 4) % 2)) c.drawImage(face, 60, s.y, S, S);
     if (st === "over") { c.globalAlpha = .4; c.drawImage(face, 60, s.y, S, S); c.globalAlpha = 1; }
     s.pts.forEach(q => { c.fillStyle = q.c; c.globalAlpha = Math.min(1, q.l / 20); c.fillRect(q.x, q.y, 4, 4); }); c.globalAlpha = 1;
-    c.fillStyle = "#f5ecd6"; c.font = "700 16px Barlow, sans-serif"; c.textAlign = "right"; c.fillText(String(Math.floor(s.dist / 10)).padStart(5, "0"), W - 16, 28);
-    if (s.totems) { totem(16, 12); c.textAlign = "left"; c.fillText("×" + s.totems, 44, 30); }
+    c.fillStyle = "#f5ecd6"; c.font = "700 16px 'Noto Sans', sans-serif"; c.textAlign = "right"; c.fillText(String(Math.floor(s.dist / 10)).padStart(5, "0"), W - 16, 28);
+    for (let i = 0; i < s.totems; i++) if (ok(IMG.totem)) c.drawImage(IMG.totem, 14 + i * 26, 10, 22, 22);
     c.textAlign = "center"; c.fillStyle = "#f7b41e";
+    if (s.banner > 0) { c.globalAlpha = Math.min(1, s.banner / 40); c.font = "800 22px 'Noto Sans', sans-serif"; c.fillText("Desierto meseta", W / 2, 70); c.globalAlpha = 1; }
+    c.font = "700 16px 'Noto Sans', sans-serif";
     if (st === "idle") c.fillText("Pulsa espacio o toca para empezar", W / 2, 120);
-    if (st === "over") { c.font = "800 24px Barlow, sans-serif"; c.fillText("Fin del juego", W / 2, 100); c.font = "500 15px Barlow, sans-serif"; c.fillStyle = "#a89a70"; c.fillText(me() ? "Pulsa para reintentar" : "Inicia sesión para guardar tu puntaje", W / 2, 126); }
+    if (st === "over") { c.font = "800 24px 'Noto Sans', sans-serif"; c.fillText("Fin del juego", W / 2, 100); c.font = "500 15px 'Noto Sans', sans-serif"; c.fillStyle = "#a89a70"; c.fillText(me() ? "Pulsa para reintentar" : "Inicia sesión para guardar tu puntaje", W / 2, 126); }
   }
   function loop(t) {
     const k = Math.min(2.5, (t - last) / 16.67 || 1); last = t;
