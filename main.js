@@ -53,14 +53,14 @@ const stopAvatar = () => { if (avatarFx) { avatarFx.destroy(); avatarFx = null; 
 const me = () => profile;
 
 /* ---------- Vistas ---------- */
-const V = ["inicio", "proyectos", "calendario", "jugadores", "perfil", "juego", "creditos"];
+const V = ["inicio", "proyectos", "calendario", "jugadores", "perfil", "juego", "mercado", "creditos"];
 function hashParts() { const [h, ...r] = location.hash.slice(1).split("/"); let a = ""; try { a = decodeURIComponent(r.join("/")); } catch (e) {} return [h, a]; }
 function refreshView() { const [h, a] = hashParts(); if (h === "jugadores") renderPlayers(); else if (h === "perfil") renderProfile(a); }
 function route() {
   stopAvatar();
   const [h, arg] = hashParts(), cur = V.includes(h) ? h : "inicio";
   V.forEach(v => $("#v-" + v).hidden = v !== cur);
-  $$(".nav a").forEach(a => a.classList.toggle("on", a.dataset.v === (["jugadores", "perfil", "juego"].includes(cur) ? "comunidad" : cur)));
+  $$(".nav a").forEach(a => a.classList.toggle("on", a.dataset.v === (["jugadores", "perfil", "juego", "mercado"].includes(cur) ? "comunidad" : cur)));
   if (cur === "jugadores") renderPlayers();
   if (cur === "perfil") renderProfile(arg);
   if (cur === "juego") { renderRank(); Game.show(); } else Game.stop();
@@ -69,28 +69,68 @@ function route() {
 addEventListener("hashchange", route);
 
 /* ---------- Galería del inicio (ruleta) ---------- */
-/* Añade aquí tus imágenes (ej. "galeria/foto1.jpg"). */
-const GALERIA = ["equipo.png", "hardhood-cataclysm.png"];
-let gi = 0, gtimer = 0;
-const gimg = $("#galimg"), gdots = $("#gdots");
-gdots.innerHTML = GALERIA.map(() => "<i></i>").join("");
-function gshow(i) {
-  gi = (i + GALERIA.length) % GALERIA.length; gimg.classList.add("out");
-  setTimeout(() => { gimg.src = GALERIA[gi]; gimg.classList.remove("out"); }, 250);
-  [...gdots.children].forEach((d, n) => d.classList.toggle("on", n === gi));
+/* Todas las imágenes de la carpeta "galeria/" aparecen solas aquí. Para obtener la lista:
+ *  1) galeria/galeria.json (lo genera GitHub Actions en cada subida, ver .github/workflows/galeria.yml)
+ *  2) si no existe, se le pregunta a la API de GitHub por el contenido de la carpeta (GitHub Pages). */
+const GAL_DIR = "galeria", GAL_MS = 5000, GAL_EXT = /\.(png|jpe?g|webp|gif|avif)$/i;
+let GALERIA = [], gi = 0, gtimer = 0, gimgs = [];
+const gal = $("#gal"), gdots = $("#gdots");
+async function galList() {
+  try { const r = await fetch(GAL_DIR + "/galeria.json", { cache: "no-cache" }); if (r.ok) { const j = await r.json(); if (Array.isArray(j) && j.length) return j; } } catch (e) {}
+  try {
+    const m = location.hostname.match(/^([^.]+)\.github\.io$/), repo = location.pathname.split("/")[1];
+    if (m && repo) {
+      const r = await fetch(`https://api.github.com/repos/${m[1]}/${repo}/contents/${GAL_DIR}`);
+      if (r.ok) return (await r.json()).filter(f => f.type === "file" && GAL_EXT.test(f.name)).map(f => f.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
+  } catch (e) {}
+  return [];
 }
-function gauto() { clearInterval(gtimer); if (!matchMedia("(prefers-reduced-motion: reduce)").matches) gtimer = setInterval(() => gshow(gi + 1), 6000); }
+function gshow(n) {
+  if (!gimgs.length) return;
+  const old = gimgs[gi]; gi = (n + gimgs.length) % gimgs.length;
+  if (old && old !== gimgs[gi]) { old.classList.remove("on"); old.classList.add("prev"); setTimeout(() => old.classList.remove("prev"), 1200); }
+  const cur = gimgs[gi]; cur.classList.remove("prev"); void cur.offsetWidth; cur.classList.add("on");
+  [...gdots.children].forEach((d, k) => d.classList.toggle("on", k === gi));
+}
+function gauto() { clearInterval(gtimer); if (gimgs.length > 1 && !matchMedia("(prefers-reduced-motion: reduce)").matches) gtimer = setInterval(() => gshow(gi + 1), GAL_MS); }
 $("#gprev").onclick = () => { gshow(gi - 1); gauto(); }; $("#gnext").onclick = () => { gshow(gi + 1); gauto(); };
-gimg.src = GALERIA[0]; gdots.children[0].classList.add("on"); gauto();
+galList().then(list => {
+  GALERIA = list.map(f => GAL_DIR + "/" + encodeURIComponent(f));
+  gimgs = GALERIA.map(src => { const i = new Image(); i.alt = ""; i.decoding = "async"; i.src = src; gal.append(i); return i; });
+  gdots.innerHTML = GALERIA.map(() => "<i></i>").join("");
+  const multi = GALERIA.length > 1; $("#gprev").hidden = $("#gnext").hidden = gdots.hidden = !multi;
+  gshow(0); gauto();
+});
 /* Alinea "Hub.Of.Original.Development" al ancho de HOOD/STUDIO */
 function fitSub() {
   const h = $(".hl h1"), p = $(".hl .sub"); if (!h || !p || $("#v-inicio").hidden) return;
   p.style.fontSize = "10px"; p.style.fontSize = (10 * h.getBoundingClientRect().width / p.scrollWidth) + "px";
 }
 addEventListener("resize", fitSub); if (document.fonts) document.fonts.ready.then(fitSub);
-/* Botón flotante de Discord (se puede ocultar) */
-try { if (sessionStorage.getItem("dcx")) $("#dc").hidden = true; } catch (e) {}
-$("#dcx").onclick = () => { $("#dc").hidden = true; try { sessionStorage.setItem("dcx", "1"); } catch (e) {} };
+/* Botón flotante de Discord: no se puede quitar, pero se arrastra a cualquier parte de la pantalla */
+(() => {
+  const el = $("#dc"), KEY = "dcpos"; let moved = false;
+  const clamp = (x, y) => [Math.min(Math.max(0, x), innerWidth - el.offsetWidth), Math.min(Math.max(0, y), innerHeight - el.offsetHeight)];
+  const put = (x, y) => { [x, y] = clamp(x, y); el.style.left = x + "px"; el.style.top = y + "px"; };
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ fx: el.offsetLeft / innerWidth, fy: el.offsetTop / innerHeight })); } catch (e) {} };
+  let init = null; try { init = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+  const place = () => init && typeof init.fx === "number" ? put(init.fx * innerWidth, init.fy * innerHeight) : put(innerWidth - el.offsetWidth - 16, innerHeight - el.offsetHeight - 16);
+  place(); if (document.fonts) document.fonts.ready.then(place);
+  addEventListener("resize", () => { init = { fx: el.offsetLeft / innerWidth, fy: el.offsetTop / innerHeight }; place(); });
+  let sx, sy, ox, oy, id = null;
+  el.addEventListener("pointerdown", e => { if (e.button) return; id = e.pointerId; sx = e.clientX; sy = e.clientY; ox = el.offsetLeft; oy = el.offsetTop; moved = false; el.setPointerCapture(id); });
+  el.addEventListener("pointermove", e => {
+    if (e.pointerId !== id) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (!moved && Math.hypot(dx, dy) < 6) return;
+    moved = true; el.classList.add("drag"); put(ox + dx, oy + dy);
+  });
+  const end = e => { if (e.pointerId !== id) return; id = null; el.classList.remove("drag"); if (moved) { init = { fx: el.offsetLeft / innerWidth, fy: el.offsetTop / innerHeight }; save(); } };
+  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+  el.addEventListener("click", e => { if (moved) { e.preventDefault(); moved = false; } }, true); // arrastrar no abre el enlace
+  el.addEventListener("dragstart", e => e.preventDefault());
+})();
 
 /* ---------- Cuentas ---------- */
 function fe(e) { // errores de Firebase -> mensajes en español
@@ -208,8 +248,8 @@ function renderAuth() {
   const mk = (t, c, f) => { const b = document.createElement("button"); b.className = c; b.textContent = t; b.onclick = f; return b; };
   if (u) {
     const d = document.createElement("a"); d.className = "me"; d.href = pLink(u.name); d.title = "Mi perfil";
-    d.innerHTML = `<img src="${esc(u.avatar)}" alt=""><span>${esc(u.name)}</span>`;
-    box.append(d, mk("Salir", "btn", () => signOut(auth)));
+    d.innerHTML = `<img src="${esc(u.avatar)}" alt="Mi perfil">`;
+    box.append(d);
   } else box.append(mk("Iniciar sesión", "btn", () => openM("login")), mk("Registrarse", "btn solid", () => openM("signup")));
 }
 
@@ -301,7 +341,7 @@ async function renderProfile(name) {
         <div class="pinfo">
           <h2>${esc(p.name)}</h2>
           <p class="muted">Miembro desde ${esc(fmtDate(p.createdAt))}</p>
-          ${mine ? `<button class="btn" id="skinbtn" type="button">Cambiar skin</button>
+          ${mine ? `<button class="btn" id="skinbtn" type="button">Cambiar skin</button><button class="btn" id="outbtn" type="button">Cerrar sesión</button>
           <form class="card skinform" id="skinform" hidden novalidate>
             <label class="chk"><input type="checkbox" id="sprem"> Usar mi skin oficial (cuenta premium)</label>
             <div id="slimrow" hidden><label class="chk"><input type="checkbox" id="sslim"> Mi skin usa brazos delgados (modelo Alex)</label></div>
@@ -372,6 +412,7 @@ async function renderProfile(name) {
         $("#npw").value = ""; er.className = "err ok"; er.textContent = "Contraseña actualizada.";
       };
       const f = $("#skinform");
+      $("#outbtn").onclick = async () => { try { await signOut(auth); } catch (e) { console.warn(e); } location.hash = "#inicio"; };
       $("#skinbtn").onclick = () => { f.hidden = !f.hidden; };
       $("#sprem").onchange = e => { $("#sbox").hidden = e.target.checked; $("#slimrow").hidden = !e.target.checked; };
       f.onsubmit = async e => {
@@ -387,22 +428,26 @@ async function renderProfile(name) {
 /* ---------- Ranking del juego ---------- */
 async function renderRank() {
   const tb = $("#rank");
+  const row = (x, i) => {
+    const n = String(x.name || "?"), mine = me() && me().name === n;
+    return `<tr${mine ? ' class="mine"' : ""}><td>${i + 1}</td><td><span class="pl"><img src="${esc(okAv(x.avatar))}" alt=""><a href="${esc(pLink(n))}">${esc(n)}</a></span></td><td>${Math.floor(Number(x.score)) || 0}</td></tr>`;
+  };
   try {
-    const snap = await getDocs(query(collection(db, "scores"), orderBy("score", "desc"), limit(10)));
-    const r = snap.docs.map(d => d.data());
-    tb.innerHTML = r.length
-      ? r.map((x, i) => `<tr><td>${i + 1}</td><td><span class="pl"><img src="${esc(okAv(x.avatar))}" alt=""><a href="${esc(pLink(x.name))}">${esc(x.name)}</a></span></td><td>${Number(x.score) || 0}</td></tr>`).join("")
-      : `<tr><td class="empty">Sé el primero en el ranking.</td></tr>`;
-  } catch (e) { console.warn(e); tb.innerHTML = `<tr><td class="empty">No se pudo cargar el ranking.</td></tr>`; }
+    let docs;
+    try { docs = (await getDocs(query(collection(db, "scores"), orderBy("score", "desc"), limit(10)))).docs; }
+    catch (e) { console.warn("ranking: consulta ordenada falló, ordeno en el navegador", e); docs = (await getDocs(query(collection(db, "scores"), limit(200)))).docs; }
+    const r = docs.map(d => d.data()).filter(x => Number(x.score) > 0).sort((a, b) => Number(b.score) - Number(a.score)).slice(0, 10);
+    tb.innerHTML = r.length ? r.map(row).join("") : `<tr><td colspan="3" class="empty">Sé el primero en el ranking.</td></tr>`;
+  } catch (e) { console.warn(e); tb.innerHTML = `<tr><td colspan="3" class="empty">No se pudo cargar el ranking${e && e.code ? " (" + esc(e.code) + ")" : ""}.</td></tr>`; }
 }
 async function saveScore(score) {
   const u = me(); if (!u || !score) return;
   try {
     const ref = doc(db, "scores", u.uid), snap = await getDoc(ref);
     if (snap.exists() && snap.data().score >= score) return;
-    await setDoc(ref, { name: u.name, avatar: u.avatar, score });
+    await setDoc(ref, { name: u.name, avatar: u.avatar, score: Math.floor(score) });
     renderRank();
-  } catch (e) { console.warn(e); }
+  } catch (e) { console.warn("No se pudo guardar el puntaje:", e); const t = $("#rank"); if (t) t.insertAdjacentHTML("beforeend", `<tr><td colspan="3" class="empty">No se pudo guardar tu puntaje${e && e.code ? " (" + esc(e.code) + ")" : ""}.</td></tr>`); }
 }
 
 /* ---------- Minijuego ---------- */

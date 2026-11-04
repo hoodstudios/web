@@ -1,0 +1,2 @@
+Pon aquí las imágenes del carrusel (png, jpg, webp, gif, avif). Se muestran en orden alfabético
+(usa 01-, 02-... en el nombre para controlar el orden). No hay que tocar el código.
