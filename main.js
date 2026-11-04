@@ -22,7 +22,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app), db = getFirestore(app);
 
-import { createMascot } from "./mascot.js";
+import { createAvatar } from "./avatar.js";
 
 (() => {
 "use strict";
@@ -48,8 +48,8 @@ const medalCount = d => Array.isArray(d.medalIds) ? d.medalIds.length : (Number(
 const pLink = n => "#perfil/" + encodeURIComponent(n);
 
 let profile = null, ready = false, signing = false;
-let mascot = null;
-const stopMascot = () => { if (mascot) { mascot.destroy(); mascot = null; } };
+let avatarFx = null;
+const stopAvatar = () => { if (avatarFx) { avatarFx.destroy(); avatarFx = null; } };
 const me = () => profile;
 
 /* ---------- Vistas ---------- */
@@ -57,7 +57,7 @@ const V = ["inicio", "proyectos", "calendario", "jugadores", "perfil", "juego", 
 function hashParts() { const [h, ...r] = location.hash.slice(1).split("/"); let a = ""; try { a = decodeURIComponent(r.join("/")); } catch (e) {} return [h, a]; }
 function refreshView() { const [h, a] = hashParts(); if (h === "jugadores") renderPlayers(); else if (h === "perfil") renderProfile(a); }
 function route() {
-  stopMascot();
+  stopAvatar();
   const [h, arg] = hashParts(), cur = V.includes(h) ? h : "inicio";
   V.forEach(v => $("#v-" + v).hidden = v !== cur);
   $$(".nav a").forEach(a => a.classList.toggle("on", a.dataset.v === (cur === "perfil" ? "jugadores" : cur)));
@@ -129,7 +129,7 @@ async function signUp(name, pw, prem, file) {
     try { cred = await createUserWithEmailAndPassword(auth, mail(name), pw); } catch (e) { return fe(e); }
     try { await setDoc(doc(db, "players", cred.user.uid), { name, avatar, medalIds: [], createdAt: serverTimestamp() }); }
     catch (e) { try { await deleteUser(cred.user); } catch (_) {} return fe(e); }
-    try { await setDoc(doc(db, "mascots", cred.user.uid), { skin: skinData, slim }); } catch (e) { console.warn(e); }
+    try { await setDoc(doc(db, "avatars", cred.user.uid), { skin: skinData, slim }); } catch (e) { console.warn(e); }
     profile = { uid: cred.user.uid, name, avatar, medalIds: [] };
     return null;
   } finally { signing = false; }
@@ -250,7 +250,7 @@ async function updateSkin(prem, file, slimChk) {
   else return "Sube tu skin o marca la opción de cuenta premium.";
   try {
     await updateDoc(doc(db, "players", u.uid), { avatar });
-    await setDoc(doc(db, "mascots", u.uid), { skin: skinData, slim });
+    await setDoc(doc(db, "avatars", u.uid), { skin: skinData, slim });
     const sref = doc(db, "scores", u.uid), s = await getDoc(sref);
     if (s.exists()) await updateDoc(sref, { avatar });
     profile.avatar = avatar; return null;
@@ -266,7 +266,7 @@ async function renderProfile(name) {
     if (tok !== profTok) return;
     if (q.empty) { box.innerHTML = `<p class="muted">No existe ningún jugador llamado «${esc(name)}».</p>`; return; }
     const uid = q.docs[0].id, p = q.docs[0].data(), mine = !!me() && me().uid === uid;
-    const mdoc = getDoc(doc(db, "mascots", uid)).then(x => x.exists() ? x.data() : null).catch(() => null);
+    const mdoc = getDoc(doc(db, "avatars", uid)).then(x => x.exists() ? x.data() : null).catch(() => null);
     const recs = await Promise.all(GAMES.map(async g => {
       try { const s = await getDoc(doc(db, g.col, uid)); return [g, s.exists() ? Number(s.data()[g.field]) || 0 : null]; }
       catch (e) { return [g, null]; }
@@ -274,7 +274,7 @@ async function renderProfile(name) {
     if (tok !== profTok) return;
     const md = await mdoc;
     if (tok !== profTok) return;
-    stopMascot();
+    stopAvatar();
     const ids = Array.isArray(p.medalIds) ? p.medalIds : [];
     box.innerHTML = `
       <div class="card prof">
@@ -292,9 +292,9 @@ async function renderProfile(name) {
           </form>` : ""}
         </div>
       </div>
-      <h3 class="sec">Mascota</h3>
-      <div class="card mascot">
-        <canvas id="mcv" role="img" aria-label="Mascota de ${esc(p.name)}"></canvas>
+      <h3 class="sec">Avatar</h3>
+      <div class="card avatarbox">
+        <canvas id="acv" role="img" aria-label="Avatar de ${esc(p.name)}"></canvas>
         <p class="muted small">Haz clic en ella para acariciarla, o en el suelo para que camine hacia allí.</p>
       </div>
       <h3 class="sec">Medallas <span class="muted">(${ids.length})</span></h3>
@@ -326,7 +326,7 @@ async function renderProfile(name) {
     const CHAR = "https://minotar.net/skin/char";
     const srcName = okAv(p.avatar) === headUrl(p.name) ? p.name : "char";
     const srcs = md && md.skin ? [md.skin, CHAR] : ["https://minotar.net/skin/" + encodeURIComponent(srcName), CHAR];
-    mascot = createMascot($("#mcv"), { skinSources: srcs, slim: !!(md && md.slim) });
+    avatarFx = createAvatar($("#acv"), { skinSources: srcs, slim: !!(md && md.slim) });
     if (mine) {
       justGoogle = false;
       const gs = $("#gstate");
