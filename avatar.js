@@ -133,15 +133,19 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
 
   /* ---------- Escenario ---------- */
   function drawRoom() {
-    c.fillStyle = "#0b0904"; c.fillRect(0, 0, W, WALL);
-    c.fillStyle = "rgba(247,180,30,.05)"; for (let x = 0; x < W; x += 48) c.fillRect(x, 0, 2, WALL);
-    c.fillStyle = "#3a2a0a"; c.fillRect(0, WALL - 8, W, 8);
-    c.fillStyle = "#17110a"; c.fillRect(0, WALL, W, H - WALL);
-    c.fillStyle = "rgba(247,180,30,.1)";
-    for (let y = WALL + 20, r = 0; y < H; y += 22, r++) {
-      c.fillRect(0, y, W, 2);
-      for (let x = (r % 2) * 40; x < W; x += 80) c.fillRect(x, y - 22, 2, 22);
-    }
+    // Habitación isométrica: planos con ángulos duros y una cuadrícula de bloques.
+    c.fillStyle = "#111923"; c.fillRect(0, 0, W, H);
+    c.fillStyle = "#263744"; c.fillRect(0, 0, W, WALL);
+    c.fillStyle = "#314855";
+    for (let x = -W; x < W * 2; x += 32) { c.beginPath(); c.moveTo(W / 2, WALL - 2); c.lineTo(x, 0); c.lineTo(x + 2, 0); c.lineTo(W / 2 + 2, WALL - 2); c.fill(); }
+    c.fillStyle = "#18252d"; c.fillRect(0, WALL - 7, W, 7);
+    c.fillStyle = "#3e5254"; c.beginPath(); c.moveTo(0, WALL); c.lineTo(W, WALL); c.lineTo(W, H); c.lineTo(0, H); c.fill();
+    c.strokeStyle = "rgba(188,207,176,.16)"; c.lineWidth = 2;
+    for (let y = WALL + 10; y < H + 30; y += 22) { c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke(); }
+    for (let x = -W; x < W * 2; x += 40) { c.beginPath(); c.moveTo(W / 2 + (x - W / 2) * .38, WALL); c.lineTo(x, H); c.stroke(); }
+    c.fillStyle = "rgba(0,0,0,.24)"; c.fillRect(0, WALL - 2, W, 2);
+    // iluminación cálida tipo diorama
+    const g = c.createRadialGradient(W * .52, WALL + 18, 8, W * .52, WALL + 18, 180); g.addColorStop(0, "rgba(255,216,117,.20)"); g.addColorStop(1, "rgba(255,216,117,0)"); c.fillStyle = g; c.fillRect(0, WALL, W, H - WALL);
     for (const f of items.furniture) f(c, { S, time, W, H, floor: FEET });
   }
   function drawHeart(x, y, a) {
@@ -193,6 +197,16 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
   return {
     destroy() { alive = false; cancelAnimationFrame(raf); canvas.removeEventListener("pointerdown", onPointer); },
     setHat(fn) { items.hat = fn; },
-    addFurniture(fn) { items.furniture.push(fn); }
+    addFurniture(fn) { items.furniture.push(fn); },
+    play(mode) { if (["idle", "walk", "jump", "wave"].includes(mode)) go(mode); },
+    // Exporta el canvas ya rasterizado; al ampliar se fuerza NEAREST NEIGHBOR.
+    download(size = 512, background = "transparent") {
+      const out = document.createElement("canvas"); out.width = out.height = size;
+      const oc = out.getContext("2d"); oc.imageSmoothingEnabled = false;
+      if (background !== "transparent") { oc.fillStyle = background; oc.fillRect(0, 0, size, size); }
+      const scale = Math.min(size / W, size / H);
+      oc.drawImage(canvas, Math.floor((size - W * scale) / 2), Math.floor((size - H * scale) / 2), Math.floor(W * scale), Math.floor(H * scale));
+      const a = document.createElement("a"); a.download = `hood-avatar-${size}.png`; a.href = out.toDataURL("image/png"); a.click();
+    }
   };
 }

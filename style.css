@@ -107,6 +107,9 @@ a.me:hover span{color:var(--y)}
 .avatarbox{padding:1rem}
 #acv{display:block;width:100%;max-width:720px;height:auto;margin:0 auto;border-radius:12px;border:1px solid var(--line);image-rendering:pixelated;cursor:pointer;touch-action:manipulation}
 .avatarbox .small{text-align:center}
+.avatar-tools{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:.4rem;margin:.8rem auto .2rem;max-width:720px}
+.avatar-tools .mini{padding:.35rem .65rem;font-size:.78rem}
+.avatar-tools select{background:#17232c;color:var(--t);border:1px solid var(--line);border-radius:7px;padding:.35rem;font:inherit;font-size:.78rem}
 
 /* ---- v4: fuentes ---- */
 @font-face{font-family:"Minecraft Ten";src:url("fuentes/MinecraftTen.ttf") format("truetype"),url("fuentes/MinecraftTen.woff2") format("woff2");font-display:swap}

@@ -393,7 +393,11 @@ async function renderProfile(name) {
       <h3 class="sec">Avatar</h3>
       <div class="card avatarbox">
         <canvas id="acv" role="img" aria-label="Avatar de ${esc(p.name)}"></canvas>
-        <p class="muted small">Haz clic en ella para acariciarla, o en el suelo para que camine hacia allí.</p>
+        <div class="avatar-tools" aria-label="Controles del avatar">
+          <span class="muted small">Animación:</span><button class="btn mini" data-anim="idle" type="button">Idle</button><button class="btn mini" data-anim="walk" type="button">Caminar</button><button class="btn mini" data-anim="jump" type="button">Saltar</button><button class="btn mini" data-anim="wave" type="button">Celebrar</button>
+          <label class="muted small" for="avatar-size">PNG:</label><select id="avatar-size"><option>128</option><option>256</option><option selected>512</option><option>1024</option></select><select id="avatar-bg"><option value="transparent">Transparente</option><option value="#263744">Fondo azul</option><option value="#111923">Fondo oscuro</option></select><button class="btn solid mini" id="avatar-download" type="button">Descargar</button>
+        </div>
+        <p class="muted small">Haz clic en el avatar para celebrar o en el suelo para que camine.</p>
       </div>
       <h3 class="sec">Medallas <span class="muted">(${ids.length})</span></h3>
       <div class="medals" id="medals">${ids.length ? "" : `<p class="muted">Aún no tiene medallas.</p>`}</div>
@@ -425,6 +429,8 @@ async function renderProfile(name) {
     const srcName = okAv(p.avatar) === headUrl(p.name) ? p.name : "char";
     const srcs = md && md.skin ? [md.skin, CHAR] : ["https://minotar.net/skin/" + encodeURIComponent(srcName), CHAR];
     avatarFx = createAvatar($("#acv"), { skinSources: srcs, slim: !!(md && md.slim) });
+    $$(".avatar-tools [data-anim]").forEach(b => b.onclick = () => avatarFx.play(b.dataset.anim));
+    $("#avatar-download").onclick = () => avatarFx.download(Number($("#avatar-size").value), $("#avatar-bg").value);
     if (mine) {
       justGoogle = false;
       const gs = $("#gstate");
