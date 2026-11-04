@@ -103,13 +103,16 @@ function gshow(n) {
   const cur = gimgs[gi]; cur.classList.remove("prev"); void cur.offsetWidth; cur.classList.add("on");
   [...gdots.children].forEach((d, k) => d.classList.toggle("on", k === gi));
 }
-function gauto() { clearInterval(gtimer); if (gimgs.length > 1 && !matchMedia("(prefers-reduced-motion: reduce)").matches) gtimer = setInterval(() => gshow(gi + 1), GAL_MS); }
+let glocked = false;
+const glock = $("#glock");
+function gauto() { clearInterval(gtimer); if (!glocked && gimgs.length > 1) gtimer = setInterval(() => gshow(gi + 1), GAL_MS); }
+glock.onclick = () => { glocked = !glocked; glock.setAttribute("aria-pressed", glocked); glock.title = glock.ariaLabel = glocked ? "Soltar imagen (reanudar carrusel)" : "Fijar imagen (pausa el carrusel)"; gauto(); };
 $("#gprev").onclick = () => { gshow(gi - 1); gauto(); }; $("#gnext").onclick = () => { gshow(gi + 1); gauto(); };
 galList().then(async list => {
   const loaded = await Promise.all(list.map(f => new Promise(ok => { const i = new Image(), src = GAL_DIR + "/" + encodeURIComponent(f); i.alt = ""; i.onload = () => ok(i); i.onerror = () => ok(null); i.src = src; })));
   gimgs = loaded.filter(Boolean); gimgs.forEach(i => gal.append(i));
   gdots.innerHTML = gimgs.map(() => "<i></i>").join("");
-  const multi = gimgs.length > 1; $("#gprev").hidden = $("#gnext").hidden = gdots.hidden = !multi;
+  const multi = gimgs.length > 1; $("#gprev").hidden = $("#gnext").hidden = gdots.hidden = glock.hidden = !multi;
   gshow(0); gauto();
 });
 /* Alinea "Hub.Of.Original.Development" al ancho de HOOD/STUDIO */
