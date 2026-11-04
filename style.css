@@ -1,7 +1,7 @@
 :root{--y:#f7b41e;--line:rgba(247,180,30,.22);--glass:rgba(255,255,255,.035);--t:#f5ecd6;--m:#a89a70;--ease:cubic-bezier(.22,.8,.3,1)}
 *,*::before,*::after{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:#000;color:var(--t);font:400 1.05rem/1.6 "Barlow",system-ui,sans-serif}
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:#000;color:var(--t);font:400 1.05rem/1.6 "Noto Sans",system-ui,sans-serif}
 body::before{content:"";position:fixed;inset:0;z-index:-1;background:radial-gradient(700px 450px at 88% 8%,rgba(247,180,30,.24),transparent 70%),radial-gradient(600px 450px at 4% 96%,rgba(247,180,30,.13),transparent 70%),radial-gradient(500px 300px at 50% 50%,rgba(247,180,30,.05),transparent 70%)}
 img{max-width:100%;height:auto;display:block}
 a{color:var(--y)}[hidden]{display:none!important}
@@ -106,3 +106,37 @@ a.me:hover span{color:var(--y)}
 .avatarbox{padding:1rem}
 #acv{display:block;width:100%;max-width:720px;height:auto;margin:0 auto;border-radius:12px;border:1px solid var(--line);image-rendering:pixelated;cursor:pointer;touch-action:manipulation}
 .avatarbox .small{text-align:center}
+
+/* ---- v4: fuentes ---- */
+@font-face{font-family:"Minecraft Ten";src:url("fuentes/MinecraftTen.ttf") format("truetype"),url("fuentes/MinecraftTen.woff2") format("woff2");font-display:swap}
+:root{--mc:"Minecraft Ten","Silkscreen",monospace}
+.nav,h1,h2,h3,.btn,th,.tabs button,.dc,.subnav,.sub{font-family:var(--mc);font-weight:400;letter-spacing:.02em}
+.hero h1{font-weight:400}
+/* ---- hero ---- */
+.hero{grid-template-columns:1fr 1fr;gap:1.5rem;min-height:72vh}
+.hl h1{font-size:clamp(3.2rem,10vw,6.8rem);line-height:.95;width:max-content;margin:0}
+.hl .sub{display:block;width:max-content;white-space:nowrap;margin:.8rem 0 1.2rem;color:var(--m);letter-spacing:0}
+.desc{max-width:36ch;color:var(--m);margin:0}
+.social{display:flex;gap:.7rem;margin-top:1.6rem}
+.social a{width:48px;height:48px;display:grid;place-items:center;border:1px solid rgba(247,180,30,.5);border-radius:12px;color:var(--y);transition:background .35s var(--ease),color .35s,transform .35s var(--ease)}
+.social a:hover{background:var(--y);color:#000;transform:translateY(-4px)}
+.hr{position:relative;isolation:isolate}
+.hr::before{content:"";position:absolute;inset:-30px -24px;z-index:-1;background:linear-gradient(90deg,transparent,rgba(247,180,30,.3));filter:blur(40px)}
+.gal{height:min(56vh,440px);border-radius:18px;overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 40%);mask-image:linear-gradient(90deg,transparent,#000 40%)}
+.gal img{width:100%;height:100%;object-fit:cover;transition:opacity .35s}
+.gal img.out{opacity:0}
+.galctl{display:flex;align-items:center;gap:.7rem;margin-top:1rem;flex-wrap:wrap}
+.btn.round{width:40px;height:40px;padding:0;font-size:1.3rem;line-height:1}
+.dots{display:flex;gap:.4rem;flex:1}.dots i{width:9px;height:9px;border-radius:50%;background:var(--line);transition:background .3s,transform .3s}.dots i.on{background:var(--y);transform:scale(1.25)}
+/* ---- comunidad ---- */
+.subnav{display:inline-flex;gap:.25rem;padding:.3rem;margin-bottom:1.2rem;border:1px solid var(--line);border-radius:999px;background:var(--glass);font-size:.85rem}
+.subnav a{color:var(--t);text-decoration:none;padding:.4rem 1rem;border-radius:999px;transition:background .3s,color .3s}
+.subnav a:hover{background:rgba(247,180,30,.14);color:var(--y)}.subnav a.on{background:var(--y);color:#000}
+/* ---- footer y discord ---- */
+.foot{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.6rem 2rem}
+.flinks{display:flex;gap:1.4rem}
+.dc{position:fixed;left:1rem;bottom:1rem;z-index:40;display:flex;align-items:center;border:1px solid rgba(247,180,30,.5);border-radius:999px;background:rgba(0,0,0,.72);backdrop-filter:blur(10px);transition:transform .4s var(--ease),opacity .3s,box-shadow .4s}
+.dc:hover{transform:translateY(-3px);box-shadow:0 10px 28px -10px rgba(247,180,30,.55)}
+.dc a{display:flex;align-items:center;gap:.5rem;color:var(--y);text-decoration:none;padding:.55rem .6rem .55rem 1rem;font-size:.9rem}
+.dc button{background:none;border:0;color:var(--m);font-size:1.2rem;cursor:pointer;padding:.4rem .8rem .4rem .3rem;transition:color .3s}.dc button:hover{color:var(--y)}
+@media(max-width:860px){.hl h1{font-size:clamp(3rem,16vw,5rem)}.gal{height:300px}}
