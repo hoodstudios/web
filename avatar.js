@@ -76,18 +76,18 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
     if (!raised) armR();
     if (legacy) part(44, 20, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL, true);
     else { part(36, 52, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL); part(52, 52, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL); }
-    // Cabeza "Drops": frente ancho + lateral derecho comprimido. Esto crea el
-    // volumen chunky de Minecraft Drops sin reconstruir un modelo 3D.
+    // Cabeza "Drops" simplificada: menos superficie frontal y un costado corto
+    // para que los rasgos queden juntos y la silueta se lea más tierna.
     const hk = HK / B; // la cabeza se dibuja a escala HK en total
     c.save();
     c.translate(0, -19 * S); c.rotate(po.head); c.scale(hk, hk);
-    // lado derecho (UV x=16..23) detrás del rostro; se comprime a 4 píxeles
-    // para que la silueta sea ancha y cuadrada, como el estilo Drops.
-    c.drawImage(img, 16 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), 4 * S, -8 * S, 4 * S, 8 * S);
-    if (!legacy) c.drawImage(img, 48 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), 4 * S, -8 * S, 4 * S, 8 * S);
-    // frente original, conservando exactamente sus píxeles y la capa hat.
-    c.drawImage(img, 8 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), -4 * S, -8 * S, 8 * S, 8 * S);
-    if (!legacy) c.drawImage(img, 40 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), -4 * S, -8 * S, 8 * S, 8 * S);
+    const ik = img.width / 64;
+    // El lateral pasa de 4 a 3 píxeles lógicos; la cara de 8 a 7. Al
+    // reagrupar con vecino más cercano los ojos quedan visualmente próximos.
+    c.drawImage(img, 16 * ik, 8 * ik, 8 * ik, 8 * ik, 3.5 * S, -7 * S, 3 * S, 7 * S);
+    if (!legacy) c.drawImage(img, 48 * ik, 8 * ik, 8 * ik, 8 * ik, 3.5 * S, -7 * S, 3 * S, 7 * S);
+    c.drawImage(img, 8 * ik, 8 * ik, 8 * ik, 8 * ik, -3.5 * S, -7 * S, 7 * S, 7 * S);
+    if (!legacy) c.drawImage(img, 40 * ik, 8 * ik, 8 * ik, 8 * ik, -3.5 * S, -7 * S, 7 * S, 7 * S);
     c.restore();
     if (raised) armR();
     // sombrero (gancho para la tienda): origen en el cuello, a la escala de la cabeza
