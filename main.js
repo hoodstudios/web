@@ -22,7 +22,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app), db = getFirestore(app);
 
-import { createAvatar, createAvatarSprite } from "./avatar.js";
+import { createAvatar, createFigureSet, loadSkin, ANIMS } from "./avatar.js";
 
 (() => {
 "use strict";
@@ -31,14 +31,14 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;"
 const headUrl = n => "https://minotar.net/helm/" + encodeURIComponent(n) + "/64.png";
 const DEF = headUrl("MHF_Steve");
 const okAv = a => typeof a === "string" && (a.startsWith("https://minotar.net/helm/") || a.startsWith("data:image/png;base64,")) ? a : DEF;
-const mail = n => n.toLowerCase() + "@hoodstudio.app";
-/* Fuentes de la skin para el avatar 3D. Se usa crossOrigin, así que solo valen servidores con CORS. */
-const SKIN_HOSTS = n => ["https://minotar.net/skin/" + encodeURIComponent(n), "https://mc-heads.net/skin/" + encodeURIComponent(n)];
-function skinSourcesFor(name, avatar, md) {
-  const prem = okAv(avatar) === headUrl(name);
-  const own = md && md.skin ? [md.skin] : [];
-  return { skinSources: [...own, ...SKIN_HOSTS(prem ? name : "char")], slim: !!(md && md.slim) };
+/* Fuentes de la skin completa, en orden de preferencia; la última es local para que siempre haya algo que mostrar */
+const LOCAL_SKIN = "img/skin-default.png";
+function skinSources(name, avatar, md) {
+  if (md && md.skin) return [md.skin, LOCAL_SKIN];
+  const prem = okAv(avatar) === headUrl(name), n = encodeURIComponent(name);
+  return [...(prem ? ["https://minotar.net/skin/" + n, "https://mc-heads.net/skin/" + n] : []), "https://minotar.net/skin/char", LOCAL_SKIN];
 }
+const mail = n => n.toLowerCase() + "@hoodstudio.app";
 
 /* Catálogo de medallas: la clave (id) es lo que guardas en Firestore, en players/<jugador>/medalIds.
  * Las imágenes van en la carpeta "medallas/" de tu repositorio (PNG o WebP cuadrados). */
@@ -399,10 +399,8 @@ async function renderProfile(name) {
       </div>
       <h3 class="sec">Avatar</h3>
       <div class="card avatarbox">
-        <canvas id="acv" role="img" aria-label="Avatar de ${esc(p.name)}"></canvas>
-        <div class="avatar-tools" aria-label="Controles del avatar">
-          <label class="muted small" for="avatar-size">Descargar avatar:</label><select id="avatar-size"><option>128</option><option>256</option><option selected>512</option><option>1024</option></select><select id="avatar-bg"><option value="transparent">Transparente</option><option value="#263744">Fondo azul</option><option value="#111923">Fondo oscuro</option></select><button class="btn solid mini" id="avatar-download" type="button">Descargar avatar</button>
-        </div>
+        <canvas id="acv" role="img" aria-label="Avatar de ${esc(p.name)} en su habitación"></canvas>
+        <div class="avatar-tools"><button class="btn solid mini" id="avatar-download" type="button">Descargar avatar</button></div>
       </div>
       <h3 class="sec">Medallas <span class="muted">(${ids.length})</span></h3>
       <div class="medals" id="medals">${ids.length ? "" : `<p class="muted">Aún no tiene medallas.</p>`}</div>
@@ -430,9 +428,8 @@ async function renderProfile(name) {
       const b = document.createElement("b"); b.textContent = m.name;
       el.append(ic, b); mw.append(el);
     });
-    const sk = skinSourcesFor(p.name, p.avatar, md);
-    avatarFx = createAvatar($("#acv"), sk);
-    $("#avatar-download").onclick = () => avatarFx.download(Number($("#avatar-size").value), $("#avatar-bg").value);
+    avatarFx = createAvatar($("#acv"), { skinSources: skinSources(p.name, p.avatar, md), slim: !!(md && md.slim), name: p.name });
+    $("#avatar-download").onclick = () => avatarFx.download();
     if (mine) {
       justGoogle = false;
       const gs = $("#gstate");
@@ -499,10 +496,10 @@ async function saveScore(score) {
 
 /* ---------- Minijuego ---------- */
 const Game = (() => {
-  const cv = $("#cv"), c = cv.getContext("2d"), W = 800, GY = 200, S = 48, B = 24, BIOME_AT = 21000, MAXT = 3;
+  const cv = $("#cv"), c = cv.getContext("2d"), W = 800, GY = 200, S = 36, B = 24, BIOME_AT = 21000, MAXT = 3;
   const IMG = {}; ["totem", "cactus", "flor", "arena", "arena-roja"].forEach(n => { const i = new Image(); i.src = "img/" + n + ".png"; IMG[n] = i; });
   const ok = i => i.complete && i.naturalWidth > 0;
-  let raf = 0, last = 0, st = "idle", s, sprite = null, spriteAnim = "", spriteTok = 0;
+  let raf = 0, last = 0, st = "idle", s, figs = null, figKey = "", figTok = 0, aT = 0, aAir = false;
   const rnd = (a, b) => a + Math.random() * (b - a);
   const reset = () => {
     cv.style.background = "";
@@ -510,22 +507,18 @@ const Game = (() => {
       clouds: Array.from({ length: 4 }, () => ({ x: rnd(0, W), y: rnd(20, 90) })),
       mesas: Array.from({ length: 3 }, (_, i) => ({ x: i * 300 + rnd(0, 120), w: rnd(120, 200), h: rnd(50, 95) })) };
   };
-  // Avatar 3D del jugador (de perfil, mirando a la derecha). Lleva su propia skin: premium, subida o Steve.
+  /* El personaje es el avatar Drop del jugador (con su skin); si no ha iniciado sesión, el Steve por defecto */
   async function loadFace() {
-    const tok = ++spriteTok, u = me();
+    const u = me(), key = u ? u.uid + "|" + u.avatar : "guest";
+    if (key === figKey && figs) return;
+    const tok = ++figTok; figKey = key;
     let md = null;
-    if (u && u.uid) { try { const x = await getDoc(doc(db, "avatars", u.uid)); md = x.exists() ? x.data() : null; } catch (e) { /* sin skin guardada */ } }
-    if (tok !== spriteTok) return;
-    if (sprite) sprite.destroy();
-    sprite = createAvatarSprite(u ? skinSourcesFor(u.name, u.avatar, md) : { skinSources: SKIN_HOSTS("char") });
-    spriteAnim = "";
-  }
-  // idle antes de empezar / al perder, andar x1.5 corriendo, salto x1.5 en el aire
-  function syncAnim() {
-    if (!sprite) return;
-    const want = st !== "run" ? "idle" : s.y < GY - S - 0.5 ? "jump" : "walk";
-    if (want === spriteAnim) return;
-    spriteAnim = want; sprite.play(want, want === "idle" ? 1 : 1.5);
+    if (u) { try { const d = await getDoc(doc(db, "avatars", u.uid)); md = d.exists() ? d.data() : null; } catch (e) { /* sin skin guardada */ } }
+    const srcs = u ? skinSources(u.name, u.avatar, md) : ["https://minotar.net/skin/MHF_Steve", "https://mc-heads.net/skin/MHF_Steve", LOCAL_SKIN];
+    const img = await loadSkin(srcs);
+    if (tok !== figTok) return;
+    figs = img ? createFigureSet(img, { slim: !!(md && md.slim), k: 2 }) : null;
+    if (!figs) figKey = "";
   }
   function burst(x, y, cols, n) { for (let i = 0; i < n; i++) s.pts.push({ x, y, vx: rnd(-4, 4), vy: rnd(-5, 1), l: rnd(25, 50), c: cols[i % cols.length] }); }
   function jump() {
@@ -552,7 +545,7 @@ const Game = (() => {
     s.clouds.forEach(cl => { cl.x -= .4 * k; if (cl.x < -60) { cl.x = W + 20; cl.y = rnd(20, 90); } });
     s.mesas.forEach(m => { m.x -= 1.2 * k; if (m.x + m.w < 0) { m.x = W + rnd(0, 100); m.w = rnd(120, 200); m.h = rnd(50, 95); } });
     s.obs = s.obs.filter(o => o.x > -30); s.tot = s.tot.filter(t => t.x > -40);
-    const p = { x: 66, y: s.y + 4, w: 18, h: S - 8 };
+    const p = { x: 64, y: s.y + 4, w: S - 8, h: S - 8 };
     s.tot = s.tot.filter(t => { if (hit(p, t)) { s.totems = Math.min(MAXT, s.totems + 1); burst(t.x + 13, t.y + 13, ["#e8b923", "#2e9e4a", "#fff6c4"], 22); return false; } return true; });
     if (s.inv > 0) s.inv -= k; if (s.boost > 0) s.boost -= k; if (s.banner > 0) s.banner -= k;
     for (const o of s.obs) {
@@ -567,6 +560,18 @@ const Game = (() => {
     }
     parts(k);
   }
+  /* Dibuja al avatar mirando a la derecha (hacia donde corre): andar a 1,5× en el suelo y salto a 1,5× en el aire */
+  function player() {
+    if (!figs) { c.fillStyle = "#f7b41e"; c.fillRect(60, s.y, S, S); return; }
+    const air = s.y < GY - S - 0.5;
+    if (air !== aAir) { aAir = air; aT = 0; }
+    const anim = st !== "run" ? "idle" : air ? "jump" : "walk";
+    const a = ANIMS[anim], n = a.frames.length, i = anim === "jump" ? Math.min(7, Math.floor(aT)) : Math.floor(aT) % n;
+    const { fig } = figs.get(anim, i);                       // sin desplazamiento vertical propio: la altura la pone la física del juego
+    c.save(); c.translate(78, 0); c.scale(-1, 1);
+    c.drawImage(fig, -figs.w / 2, s.y + S - figs.feet);
+    c.restore();
+  }
   function draw() {
     c.clearRect(0, 0, W, 240); c.imageSmoothingEnabled = false;
     if (s.biome) { c.fillStyle = "rgba(190,90,30,.25)"; s.mesas.forEach(m => { c.fillRect(m.x, GY - m.h, m.w, m.h); }); c.fillStyle = "rgba(220,120,50,.4)"; s.mesas.forEach(m => c.fillRect(m.x, GY - m.h, m.w, 4)); }
@@ -579,13 +584,8 @@ const Game = (() => {
       if (o.fl && ok(IMG.flor)) c.drawImage(IMG.flor, o.x, GY - o.h - B, B, B);
     });
     s.tot.forEach(t => { const y = t.y + Math.sin(s.dist / 15) * 3; if (ok(IMG.totem)) c.drawImage(IMG.totem, t.x, y, 26, 26); else { c.fillStyle = "#e8b923"; c.fillRect(t.x, y, 26, 26); } });
-    if (sprite && sprite.ready) {
-      const D = 60, dx = 75 - D / 2, dy = s.y + S + 6 - D; // pies justo sobre el suelo
-      c.imageSmoothingEnabled = true; c.imageSmoothingQuality = "high";
-      if (st === "over") c.globalAlpha = .4;
-      if (st === "over" || s.inv <= 0 || Math.floor(s.inv / 4) % 2) c.drawImage(sprite.canvas, dx, dy, D, D);
-      c.globalAlpha = 1; c.imageSmoothingEnabled = false;
-    }
+    if (st !== "over" && (s.inv <= 0 || Math.floor(s.inv / 4) % 2)) player();
+    if (st === "over") { c.globalAlpha = .4; player(); c.globalAlpha = 1; }
     s.pts.forEach(q => { c.fillStyle = q.c; c.globalAlpha = Math.min(1, q.l / 20); c.fillRect(q.x, q.y, 4, 4); }); c.globalAlpha = 1;
     c.fillStyle = "#f5ecd6"; c.font = "700 16px 'Noto Sans', sans-serif"; c.textAlign = "right"; c.fillText(String(Math.floor(s.dist / 10)).padStart(5, "0"), W - 16, 28);
     for (let i = 0; i < s.totems; i++) if (ok(IMG.totem)) c.drawImage(IMG.totem, 14 + i * 26, 10, 22, 22);
@@ -598,7 +598,7 @@ const Game = (() => {
   function loop(t) {
     const k = Math.min(2.5, (t - last) / 16.67 || 1); last = t;
     if (st === "run") update(k); else parts(k);
-    syncAnim(); if (sprite) sprite.render(k / 60);
+    aT += k / 60 * (st !== "run" ? ANIMS.idle.fps : aAir ? ANIMS.jump.fps * 1.5 : ANIMS.walk.fps * 1.5);   // andar y salto a 1,5×
     draw(); raf = requestAnimationFrame(loop);
   }
   const key = e => { if (!$("#v-juego").hidden && ["Space", "ArrowUp"].includes(e.code) && modal.hidden) { e.preventDefault(); jump(); } };
