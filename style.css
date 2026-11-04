@@ -103,6 +103,6 @@ a.me:hover span{color:var(--y)}
 .seg hr{border:0;border-top:1px solid var(--line);margin:1rem 0}
 .ok{color:#8fdc8f}
 
-.mascot{padding:1rem}
-#mcv{display:block;width:100%;max-width:720px;height:auto;margin:0 auto;border-radius:12px;border:1px solid var(--line);image-rendering:pixelated;cursor:pointer;touch-action:manipulation}
-.mascot .small{text-align:center}
+.avatarbox{padding:1rem}
+#acv{display:block;width:100%;max-width:720px;height:auto;margin:0 auto;border-radius:12px;border:1px solid var(--line);image-rendering:pixelated;cursor:pointer;touch-action:manipulation}
+.avatarbox .small{text-align:center}
