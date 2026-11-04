@@ -12,7 +12,7 @@ const S = 5;                 // píxeles de canvas por cada píxel de skin
 const WALL = 235, FEET = 262; // fin de la pared y altura de los pies
 // Proporciones (estilo Minecraft Live). B*S y HK*S son enteros para que los píxeles queden nítidos.
 const B = 0.68;              // cuerpo compacto, como un personaje ilustrado
-const HK = 2.4;              // la cabeza sigue siendo el foco visual
+const HK = 3.05;             // busto: la cabeza domina la composición
 const CH = 24 * B + 8 * HK;  // altura total en unidades de skin
 
 const loadImg = src => new Promise((ok, no) => {
@@ -47,23 +47,27 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
 
   function drawChar(po) {
     const aw = slim ? 3 : 4, legacy = img.height < img.width; // 64×32 = formato antiguo
+    const bust = true;
     c.save();
     c.translate(Math.round(st.x), FEET + Math.round(po.y * S));
     c.rotate(po.lean);
     c.scale(B, B); // cuerpo pequeño; la cabeza se agranda aparte
 
-    // piernas (el personaje de frente: su pierna derecha queda a la izquierda del espectador)
-    part(4, 20, 4, 12, -2, -12, 2, 0, 0, po.lR);
-    if (!legacy) part(4, 36, 4, 12, -2, -12, 2, 0, 0, po.lR);
-    if (legacy) part(4, 20, 4, 12, 2, -12, 2, 0, 0, po.lL, true);
-    else { part(20, 52, 4, 12, 2, -12, 2, 0, 0, po.lL); part(4, 52, 4, 12, 2, -12, 2, 0, 0, po.lL); }
+    // El avatar es un busto 2D, no una miniatura del modelo 3D completo.
+    // Las piernas se conservan solo para las animaciones, pero no dominan el sprite.
+    if (!bust) {
+      part(4, 20, 4, 12, -2, -12, 2, 0, 0, po.lR);
+      if (!legacy) part(4, 36, 4, 12, -2, -12, 2, 0, 0, po.lR);
+      if (legacy) part(4, 20, 4, 12, 2, -12, 2, 0, 0, po.lL, true);
+      else { part(20, 52, 4, 12, 2, -12, 2, 0, 0, po.lL); part(4, 52, 4, 12, 2, -12, 2, 0, 0, po.lL); }
+    }
 
     c.translate(0, Math.round(po.bob * S)); // el torso respira / rebota; las piernas no
     // torso
-    part(20, 20, 8, 12, 0, -24, 4, 0);
-    if (!legacy) part(20, 36, 8, 12, 0, -24, 4, 0);
+    part(20, 20, 8, 12, 0, -19, 4, 0);
+    if (!legacy) part(20, 36, 8, 12, 0, -19, 4, 0);
     // brazos (pivote en el hombro)
-    const shoulder = -22;
+    const shoulder = -17;
     const armR = () => {
       part(44, 20, aw, 12, -4 - aw / 2, shoulder, aw / 2, 2, po.aR, po.sR);
       if (!legacy) part(44, 36, aw, 12, -4 - aw / 2, shoulder, aw / 2, 2, po.aR, po.sR);
@@ -74,8 +78,8 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
     else { part(36, 52, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL); part(52, 52, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL); }
     // cabeza (pivote en el cuello)
     const hk = HK / B; // la cabeza se dibuja a escala HK en total
-    part(8, 8, 8, 8, 0, -24, 4, 8, po.head, 1, false, hk);
-    if (!legacy) part(40, 8, 8, 8, 0, -24, 4, 8, po.head, 1, false, hk);
+    part(8, 8, 8, 8, 0, -19, 4, 8, po.head, 1, false, hk);
+    if (!legacy) part(40, 8, 8, 8, 0, -19, 4, 8, po.head, 1, false, hk);
     if (raised) armR();
     // sombrero (gancho para la tienda): origen en el cuello, a la escala de la cabeza
     if (items.hat) { c.save(); c.translate(0, -24 * S); c.rotate(po.head); c.scale(hk, hk); items.hat(c, S, time); c.restore(); }
