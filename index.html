@@ -126,6 +126,13 @@
       <p class="err" id="err" role="alert"></p>
       <button class="btn solid" id="go" type="submit">Iniciar sesión</button>
     </form>
+    <div id="gstep" hidden>
+      <h3 style="color:var(--y);margin-bottom:.5rem">¡Cuenta creada!</h3>
+      <p class="muted small">Vincula tu cuenta de Google (opcional) para poder recuperar tu contraseña si la olvidas. También puedes hacerlo después desde tu perfil.</p>
+      <button class="btn solid gbtn" id="glink" type="button">Vincular cuenta de Google</button>
+      <button class="btn gbtn" id="gskip" type="button">Ahora no</button>
+      <p class="err" id="gerr" role="alert"></p>
+    </div>
     <div id="glogin">
       <p class="muted small">¿Olvidaste tu contraseña? Si vinculaste tu cuenta de Google en tu perfil, entra con ella y crea una contraseña nueva.</p>
       <button class="btn gbtn" id="gbtn" type="button">Entrar con Google</button>
