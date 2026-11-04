@@ -76,10 +76,19 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
     if (!raised) armR();
     if (legacy) part(44, 20, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL, true);
     else { part(36, 52, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL); part(52, 52, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL); }
-    // cabeza (pivote en el cuello)
+    // Cabeza "Drops": frente ancho + lateral derecho comprimido. Esto crea el
+    // volumen chunky de Minecraft Drops sin reconstruir un modelo 3D.
     const hk = HK / B; // la cabeza se dibuja a escala HK en total
-    part(8, 8, 8, 8, 0, -19, 4, 8, po.head, 1, false, hk);
-    if (!legacy) part(40, 8, 8, 8, 0, -19, 4, 8, po.head, 1, false, hk);
+    c.save();
+    c.translate(0, -19 * S); c.rotate(po.head); c.scale(hk, hk);
+    // lado derecho (UV x=16..23) detrás del rostro; se comprime a 4 píxeles
+    // para que la silueta sea ancha y cuadrada, como el estilo Drops.
+    c.drawImage(img, 16 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), 4 * S, -8 * S, 4 * S, 8 * S);
+    if (!legacy) c.drawImage(img, 48 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), 4 * S, -8 * S, 4 * S, 8 * S);
+    // frente original, conservando exactamente sus píxeles y la capa hat.
+    c.drawImage(img, 8 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), -4 * S, -8 * S, 8 * S, 8 * S);
+    if (!legacy) c.drawImage(img, 40 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), 8 * (img.width / 64), -4 * S, -8 * S, 8 * S, 8 * S);
+    c.restore();
     if (raised) armR();
     // sombrero (gancho para la tienda): origen en el cuello, a la escala de la cabeza
     if (items.hat) { c.save(); c.translate(0, -24 * S); c.rotate(po.head); c.scale(hk, hk); items.hat(c, S, time); c.restore(); }
