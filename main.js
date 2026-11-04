@@ -22,6 +22,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app), db = getFirestore(app);
 
+import { createMascot } from "./mascot.js";
+
 (() => {
 "use strict";
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
@@ -46,6 +48,8 @@ const medalCount = d => Array.isArray(d.medalIds) ? d.medalIds.length : (Number(
 const pLink = n => "#perfil/" + encodeURIComponent(n);
 
 let profile = null, ready = false, signing = false;
+let mascot = null;
+const stopMascot = () => { if (mascot) { mascot.destroy(); mascot = null; } };
 const me = () => profile;
 
 /* ---------- Vistas ---------- */
@@ -53,6 +57,7 @@ const V = ["inicio", "proyectos", "calendario", "jugadores", "perfil", "juego", 
 function hashParts() { const [h, ...r] = location.hash.slice(1).split("/"); let a = ""; try { a = decodeURIComponent(r.join("/")); } catch (e) {} return [h, a]; }
 function refreshView() { const [h, a] = hashParts(); if (h === "jugadores") renderPlayers(); else if (h === "perfil") renderProfile(a); }
 function route() {
+  stopMascot();
   const [h, arg] = hashParts(), cur = V.includes(h) ? h : "inicio";
   V.forEach(v => $("#v-" + v).hidden = v !== cur);
   $$(".nav a").forEach(a => a.classList.toggle("on", a.dataset.v === (cur === "perfil" ? "jugadores" : cur)));
@@ -83,20 +88,29 @@ function fe(e) { // errores de Firebase -> mensajes en español
   if (c === "permission-denied" || c === "firestore/permission-denied") return "Permiso denegado por las reglas de Firestore.";
   console.warn(e); return "Ocurrió un error. Inténtalo de nuevo.";
 }
-function skinToHead(file) {
+/* Lee el PNG de la skin: devuelve la cabeza (avatar), la skin completa normalizada y si es de brazos delgados */
+function readSkin(file) {
   return new Promise((ok, no) => {
     const img = new Image(), url = URL.createObjectURL(file);
     img.onload = () => {
+      URL.revokeObjectURL(url);
       if (img.width !== 64 || (img.height !== 64 && img.height !== 32)) return no(new Error("size"));
-      const c = document.createElement("canvas"); c.width = c.height = 64;
-      const x = c.getContext("2d"); x.imageSmoothingEnabled = false;
-      x.drawImage(img, 8, 8, 8, 8, 0, 0, 64, 64);
-      if (img.height === 64) x.drawImage(img, 40, 8, 8, 8, 0, 0, 64, 64);
-      URL.revokeObjectURL(url); ok(c.toDataURL("image/png"));
+      const sk = document.createElement("canvas"); sk.width = 64; sk.height = img.height;
+      const sx = sk.getContext("2d", { willReadFrequently: true }); sx.drawImage(img, 0, 0);
+      const hd = document.createElement("canvas"); hd.width = hd.height = 64;
+      const hx = hd.getContext("2d"); hx.imageSmoothingEnabled = false;
+      hx.drawImage(sk, 8, 8, 8, 8, 0, 0, 64, 64);
+      if (img.height === 64) hx.drawImage(sk, 40, 8, 8, 8, 0, 0, 64, 64);
+      let slim = false;
+      if (img.height === 64) { const d = sx.getImageData(55, 20, 1, 12).data; slim = [3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47].every(i => d[i] === 0); }
+      const skin = sk.toDataURL("image/png");
+      if (skin.length > 30000) return no(new Error("big"));
+      ok({ head: hd.toDataURL("image/png"), skin, slim });
     };
     img.onerror = () => no(new Error("img")); img.src = url;
   });
 }
+const skinErr = e => e && e.message === "big" ? "La skin pesa demasiado. Prueba con otra o comprímela." : "La skin debe ser un PNG de 64×64 (o 64×32).";
 async function loadProfile(user) {
   profile = null;
   if (!user) return;
@@ -106,15 +120,16 @@ async function loadProfile(user) {
   } catch (e) { console.warn(e); }
 }
 async function signUp(name, pw, prem, file) {
-  let avatar = DEF;
+  let avatar = DEF, skinData = null, slim = false;
   if (prem) avatar = headUrl(name);
-  else if (file) { try { avatar = await skinToHead(file); } catch (e) { return "La skin debe ser un PNG de 64×64 (o 64×32)."; } }
+  else if (file) { try { const r = await readSkin(file); avatar = r.head; skinData = r.skin; slim = r.slim; } catch (e) { return skinErr(e); } }
   signing = true;
   try {
     let cred;
     try { cred = await createUserWithEmailAndPassword(auth, mail(name), pw); } catch (e) { return fe(e); }
     try { await setDoc(doc(db, "players", cred.user.uid), { name, avatar, medalIds: [], createdAt: serverTimestamp() }); }
     catch (e) { try { await deleteUser(cred.user); } catch (_) {} return fe(e); }
+    try { await setDoc(doc(db, "mascots", cred.user.uid), { skin: skinData, slim }); } catch (e) { console.warn(e); }
     profile = { uid: cred.user.uid, name, avatar, medalIds: [] };
     return null;
   } finally { signing = false; }
@@ -227,14 +242,15 @@ async function renderPlayers() {
 
 /* ---------- Perfil ---------- */
 const fmtDate = ts => { try { return ts.toDate().toLocaleDateString("es-MX", { year: "numeric", month: "long", day: "numeric" }); } catch (e) { return "—"; } };
-async function updateSkin(prem, file) {
+async function updateSkin(prem, file, slimChk) {
   const u = me(); if (!u) return "Inicia sesión primero.";
-  let avatar;
+  let avatar, skinData = null, slim = !!slimChk;
   if (prem) avatar = headUrl(u.name);
-  else if (file) { try { avatar = await skinToHead(file); } catch (e) { return "La skin debe ser un PNG de 64×64 (o 64×32)."; } }
+  else if (file) { try { const r = await readSkin(file); avatar = r.head; skinData = r.skin; slim = r.slim; } catch (e) { return skinErr(e); } }
   else return "Sube tu skin o marca la opción de cuenta premium.";
   try {
     await updateDoc(doc(db, "players", u.uid), { avatar });
+    await setDoc(doc(db, "mascots", u.uid), { skin: skinData, slim });
     const sref = doc(db, "scores", u.uid), s = await getDoc(sref);
     if (s.exists()) await updateDoc(sref, { avatar });
     profile.avatar = avatar; return null;
@@ -250,11 +266,15 @@ async function renderProfile(name) {
     if (tok !== profTok) return;
     if (q.empty) { box.innerHTML = `<p class="muted">No existe ningún jugador llamado «${esc(name)}».</p>`; return; }
     const uid = q.docs[0].id, p = q.docs[0].data(), mine = !!me() && me().uid === uid;
+    const mdoc = getDoc(doc(db, "mascots", uid)).then(x => x.exists() ? x.data() : null).catch(() => null);
     const recs = await Promise.all(GAMES.map(async g => {
       try { const s = await getDoc(doc(db, g.col, uid)); return [g, s.exists() ? Number(s.data()[g.field]) || 0 : null]; }
       catch (e) { return [g, null]; }
     }));
     if (tok !== profTok) return;
+    const md = await mdoc;
+    if (tok !== profTok) return;
+    stopMascot();
     const ids = Array.isArray(p.medalIds) ? p.medalIds : [];
     box.innerHTML = `
       <div class="card prof">
@@ -265,11 +285,17 @@ async function renderProfile(name) {
           ${mine ? `<button class="btn" id="skinbtn" type="button">Cambiar skin</button>
           <form class="card skinform" id="skinform" hidden novalidate>
             <label class="chk"><input type="checkbox" id="sprem"> Usar mi skin oficial (cuenta premium)</label>
+            <div id="slimrow" hidden><label class="chk"><input type="checkbox" id="sslim"> Mi skin usa brazos delgados (modelo Alex)</label></div>
             <div id="sbox"><label for="sfile">Sube tu skin (PNG 64×64)</label><input id="sfile" type="file" accept="image/png"></div>
             <p class="err" id="serr" role="alert"></p>
             <button class="btn solid" id="sgo" type="submit">Guardar</button>
           </form>` : ""}
         </div>
+      </div>
+      <h3 class="sec">Mascota</h3>
+      <div class="card mascot">
+        <canvas id="mcv" role="img" aria-label="Mascota de ${esc(p.name)}"></canvas>
+        <p class="muted small">Haz clic en ella para acariciarla, o en el suelo para que camine hacia allí.</p>
       </div>
       <h3 class="sec">Medallas <span class="muted">(${ids.length})</span></h3>
       <div class="medals" id="medals">${ids.length ? "" : `<p class="muted">Aún no tiene medallas.</p>`}</div>
@@ -297,6 +323,10 @@ async function renderProfile(name) {
       const b = document.createElement("b"); b.textContent = m.name;
       el.append(ic, b); mw.append(el);
     });
+    const CHAR = "https://minotar.net/skin/char";
+    const srcName = okAv(p.avatar) === headUrl(p.name) ? p.name : "char";
+    const srcs = md && md.skin ? [md.skin, CHAR] : ["https://minotar.net/skin/" + encodeURIComponent(srcName), CHAR];
+    mascot = createMascot($("#mcv"), { skinSources: srcs, slim: !!(md && md.slim) });
     if (mine) {
       justGoogle = false;
       const gs = $("#gstate");
@@ -324,10 +354,10 @@ async function renderProfile(name) {
       };
       const f = $("#skinform");
       $("#skinbtn").onclick = () => { f.hidden = !f.hidden; };
-      $("#sprem").onchange = e => $("#sbox").hidden = e.target.checked;
+      $("#sprem").onchange = e => { $("#sbox").hidden = e.target.checked; $("#slimrow").hidden = !e.target.checked; };
       f.onsubmit = async e => {
         e.preventDefault(); const er = $("#serr"); er.textContent = ""; $("#sgo").disabled = true;
-        const r = await updateSkin($("#sprem").checked, $("#sfile").files[0]);
+        const r = await updateSkin($("#sprem").checked, $("#sfile").files[0], $("#sslim").checked);
         if (r) { er.textContent = r; $("#sgo").disabled = false; return; }
         renderAuth(); Game.refresh(); renderProfile(p.name);
       };
