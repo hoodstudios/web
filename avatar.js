@@ -11,7 +11,7 @@ const W = 480, H = 300;      // tamaño interno del canvas
 const S = 5;                 // píxeles de canvas por cada píxel de skin
 const WALL = 235, FEET = 262; // fin de la pared y altura de los pies
 // Proporciones (estilo Minecraft Live). B*S y HK*S son enteros para que los píxeles queden nítidos.
-const B = 0.52;              // torso y extremidades diminutos
+const B = 0.78;              // cuerpo compacto, pero proporcional a la cabeza
 const HK = 3.35;             // cabeza cúbica dominante, proporción Drops
 const CH = 24 * B + 8 * HK;  // altura total en unidades de skin
 
@@ -46,7 +46,9 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
   }
 
   function drawChar(po) {
-    const aw = slim ? 3 : 4, legacy = img.height < img.width; // 64×32 = formato antiguo
+    const awR = slim ? 2 : 3; // brazo derecho: plano/estrecho, queda detrás
+    const awL = slim ? 3 : 5; // brazo izquierdo: volumen del costado visible
+    const legacy = img.height < img.width; // 64×32 = formato antiguo
     const bust = false;
     c.save();
     c.translate(Math.round(st.x), FEET + Math.round(po.y * S));
@@ -61,18 +63,18 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
 
     c.translate(0, Math.round(po.bob * S)); // el torso respira / rebota; las piernas no
     // torso
-    part(20, 20, 8, 9, 0, -14, 4, 0);
-    if (!legacy) part(20, 36, 8, 9, 0, -14, 4, 0);
+    part(20, 20, 8, 12, 0, -14, 4, 0);
+    if (!legacy) part(20, 36, 8, 12, 0, -14, 4, 0);
     // brazos (pivote en el hombro)
     const shoulder = -13;
     const armR = () => {
-      part(44, 20, aw, 12, -4 - aw / 2, shoulder, aw / 2, 2, po.aR, po.sR);
-      if (!legacy) part(44, 36, aw, 12, -4 - aw / 2, shoulder, aw / 2, 2, po.aR, po.sR);
+      part(44, 20, awR, 12, -4 - awR / 2, shoulder, awR / 2, 2, po.aR, po.sR);
+      if (!legacy) part(44, 36, awR, 12, -4 - awR / 2, shoulder, awR / 2, 2, po.aR, po.sR);
     };
     const raised = po.aR > 1.2; // si el brazo está levantado (saludo), se dibuja delante de la cabeza grande
     if (!raised) armR();
-    if (legacy) part(44, 20, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL, true);
-    else { part(36, 52, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL); part(52, 52, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL); }
+    if (legacy) part(44, 20, awL, 12, 4 + awL / 2, shoulder, awL / 2, 2, po.aL, po.sL, true);
+    else { part(36, 52, awL, 12, 4 + awL / 2, shoulder, awL / 2, 2, po.aL, po.sL); part(52, 52, awL, 12, 4 + awL / 2, shoulder, awL / 2, 2, po.aL, po.sL); }
     // Cabeza "Drops" simplificada: menos superficie frontal y un costado corto
     // para que los rasgos queden juntos y la silueta se lea más tierna.
     const hk = HK / B; // la cabeza se dibuja a escala HK en total
