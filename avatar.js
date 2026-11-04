@@ -11,8 +11,8 @@ const W = 480, H = 300;      // tamaño interno del canvas
 const S = 5;                 // píxeles de canvas por cada píxel de skin
 const WALL = 235, FEET = 262; // fin de la pared y altura de los pies
 // Proporciones (estilo Minecraft Live). B*S y HK*S son enteros para que los píxeles queden nítidos.
-const B = 0.68;              // cuerpo compacto, como un personaje ilustrado
-const HK = 3.05;             // busto: la cabeza domina la composición
+const B = 0.52;              // torso y extremidades diminutos
+const HK = 3.35;             // cabeza cúbica dominante, proporción Drops
 const CH = 24 * B + 8 * HK;  // altura total en unidades de skin
 
 const loadImg = src => new Promise((ok, no) => {
@@ -47,27 +47,24 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
 
   function drawChar(po) {
     const aw = slim ? 3 : 4, legacy = img.height < img.width; // 64×32 = formato antiguo
-    const bust = true;
+    const bust = false;
     c.save();
     c.translate(Math.round(st.x), FEET + Math.round(po.y * S));
     c.rotate(po.lean);
     c.scale(B, B); // cuerpo pequeño; la cabeza se agranda aparte
 
-    // El avatar es un busto 2D, no una miniatura del modelo 3D completo.
-    // Las piernas se conservan solo para las animaciones, pero no dominan el sprite.
-    if (!bust) {
-      part(4, 20, 4, 12, -2, -12, 2, 0, 0, po.lR);
-      if (!legacy) part(4, 36, 4, 12, -2, -12, 2, 0, 0, po.lR);
-      if (legacy) part(4, 20, 4, 12, 2, -12, 2, 0, 0, po.lL, true);
-      else { part(20, 52, 4, 12, 2, -12, 2, 0, 0, po.lL); part(4, 52, 4, 12, 2, -12, 2, 0, 0, po.lL); }
-    }
+    // Piernas cortas y planas: se leen como piezas de papel, no como un modelo 3D.
+    part(4, 20, 4, 7, -2, -7, 2, 0, 0, po.lR);
+    if (!legacy) part(4, 36, 4, 7, -2, -7, 2, 0, 0, po.lR);
+    if (legacy) part(4, 20, 4, 7, 2, -7, 2, 0, 0, po.lL, true);
+    else { part(20, 52, 4, 7, 2, -7, 2, 0, 0, po.lL); part(4, 52, 4, 7, 2, -7, 2, 0, 0, po.lL); }
 
     c.translate(0, Math.round(po.bob * S)); // el torso respira / rebota; las piernas no
     // torso
-    part(20, 20, 8, 12, 0, -19, 4, 0);
-    if (!legacy) part(20, 36, 8, 12, 0, -19, 4, 0);
+    part(20, 20, 8, 9, 0, -14, 4, 0);
+    if (!legacy) part(20, 36, 8, 9, 0, -14, 4, 0);
     // brazos (pivote en el hombro)
-    const shoulder = -17;
+    const shoulder = -13;
     const armR = () => {
       part(44, 20, aw, 12, -4 - aw / 2, shoulder, aw / 2, 2, po.aR, po.sR);
       if (!legacy) part(44, 36, aw, 12, -4 - aw / 2, shoulder, aw / 2, 2, po.aR, po.sR);
@@ -80,7 +77,7 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
     // para que los rasgos queden juntos y la silueta se lea más tierna.
     const hk = HK / B; // la cabeza se dibuja a escala HK en total
     c.save();
-    c.translate(0, -19 * S); c.rotate(po.head); c.scale(hk, hk);
+    c.translate(0, -14 * S); c.rotate(po.head); c.scale(hk, hk);
     const ik = img.width / 64;
     // El lateral pasa de 4 a 3 píxeles lógicos; la cara de 8 a 7. Al
     // reagrupar con vecino más cercano los ojos quedan visualmente próximos.
@@ -155,7 +152,7 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
     c.fillStyle = "#19262f"; c.beginPath(); c.moveTo(W, 0); c.lineTo(W * .82, WALL); c.lineTo(W, WALL); c.closePath(); c.fill();
     c.fillStyle = "#18252d"; c.fillRect(0, WALL - 7, W, 7);
     c.fillStyle = "#3e5254"; c.beginPath(); c.moveTo(0, WALL); c.lineTo(W, WALL); c.lineTo(W, H); c.lineTo(0, H); c.fill();
-    c.strokeStyle = "rgba(188,207,176,.16)"; c.lineWidth = 2;
+    c.strokeStyle = "rgba(188,207,176,.09)"; c.lineWidth = 2;
     for (let y = WALL + 12; y < H + 30; y += 22) { c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke(); }
     for (let x = -W; x < W * 2; x += 42) { c.beginPath(); c.moveTo(W / 2 + (x - W / 2) * .35, WALL); c.lineTo(x, H); c.stroke(); }
     c.fillStyle = "rgba(0,0,0,.24)"; c.fillRect(0, WALL - 2, W, 2);
