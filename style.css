@@ -77,3 +77,28 @@ form .btn{width:100%}
 
 @media(max-width:860px){.top{grid-template-columns:auto 1fr;grid-template-areas:"l a" "n n"}.logo{grid-area:l}.auth{grid-area:a}.nav{grid-area:n;overflow-x:auto;justify-self:stretch}.hero,.game{grid-template-columns:1fr}main{padding-top:9rem}.hero{min-height:0}.me span{display:none}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* ---- Perfiles ---- */
+.back{display:inline-block;margin-bottom:1rem;color:var(--m);text-decoration:none;font-size:.95rem}.back:hover{color:var(--y)}
+.pl a,.me{color:inherit;text-decoration:none}.pl a:hover{color:var(--y);text-decoration:underline}
+a.me:hover span{color:var(--y)}
+.prof{display:flex;gap:1.5rem;align-items:center;flex-wrap:wrap}
+.pface{width:128px;height:128px;image-rendering:pixelated;border-radius:14px;border:2px solid var(--line);background:#000}
+.pinfo{flex:1;min-width:220px}.pinfo h2{margin-bottom:.2rem!important;word-break:break-all}
+.pinfo p{margin:0 0 .8rem}
+.sec{margin:2rem 0 .8rem;font-size:1.3rem;color:var(--y)}.sec span{font-size:.95rem;font-weight:400}
+.medals{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:.8rem}
+.medal{display:flex;flex-direction:column;align-items:center;gap:.5rem;text-align:center;padding:1rem .6rem;background:var(--glass);border:1px solid var(--line);border-radius:14px;transition:transform .3s var(--ease),border-color .3s}
+.medal:hover{transform:translateY(-3px);border-color:rgba(247,180,30,.55)}
+.medal img,.medal .mfb{width:64px;height:64px;object-fit:contain;image-rendering:pixelated}
+.medal .mfb{display:grid;place-items:center;font-size:2.4rem}
+.medal b{font-size:.9rem;line-height:1.2}
+.records{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.8rem}
+.rec h4{margin:0 0 .4rem;font-size:1rem;font-weight:500;color:var(--m)}
+.rec .big{font-size:2rem;font-weight:800;color:var(--t);line-height:1}.rec .big small{font-size:.9rem;font-weight:400;color:var(--m)}
+.skinform{margin-top:.8rem;max-width:380px}
+
+.gbtn{width:100%;margin-top:.4rem}
+.seg{max-width:460px}.seg p{margin:.2rem 0 .8rem}.seg .btn{margin-bottom:.4rem}
+.seg hr{border:0;border-top:1px solid var(--line);margin:1rem 0}
+.ok{color:#8fdc8f}
