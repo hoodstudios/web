@@ -76,15 +76,25 @@ const GAL_DIR = "galeria", GAL_MS = 5000, GAL_EXT = /\.(png|jpe?g|webp|gif|avif)
 let GALERIA = [], gi = 0, gtimer = 0, gimgs = [];
 const gal = $("#gal"), gdots = $("#gdots");
 async function galList() {
-  try { const r = await fetch(GAL_DIR + "/galeria.json", { cache: "no-cache" }); if (r.ok) { const j = await r.json(); if (Array.isArray(j) && j.length) return j; } } catch (e) {}
+  const sort = l => l.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  // 1) GitHub Pages: pregunta a GitHub qué hay en la carpeta (siempre actualizado)
   try {
     const m = location.hostname.match(/^([^.]+)\.github\.io$/), repo = location.pathname.split("/")[1];
     if (m && repo) {
       const r = await fetch(`https://api.github.com/repos/${m[1]}/${repo}/contents/${GAL_DIR}`);
-      if (r.ok) return (await r.json()).filter(f => f.type === "file" && GAL_EXT.test(f.name)).map(f => f.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      if (r.ok) { const l = (await r.json()).filter(f => f.type === "file" && GAL_EXT.test(f.name)).map(f => f.name); if (l.length) return sort(l); }
     }
   } catch (e) {}
-  return [];
+  // 2) servidor local (python -m http.server, Live Server...): lee el listado de la carpeta
+  try {
+    const r = await fetch(GAL_DIR + "/"); if (r.ok && /html/.test(r.headers.get("content-type") || "")) {
+      const l = [...(await r.text()).matchAll(/href="([^"?#]+)"/g)].map(x => decodeURIComponent(x[1].split("/").pop())).filter(n => GAL_EXT.test(n));
+      if (l.length) return sort([...new Set(l)]);
+    }
+  } catch (e) {}
+  // 3) lista generada por GitHub Actions (galeria/galeria.json)
+  try { const r = await fetch(GAL_DIR + "/galeria.json", { cache: "no-cache" }); if (r.ok) { const j = await r.json(); if (Array.isArray(j) && j.length) return j; } } catch (e) {}
+  return ["equipo.png"];
 }
 function gshow(n) {
   if (!gimgs.length) return;
@@ -95,11 +105,11 @@ function gshow(n) {
 }
 function gauto() { clearInterval(gtimer); if (gimgs.length > 1 && !matchMedia("(prefers-reduced-motion: reduce)").matches) gtimer = setInterval(() => gshow(gi + 1), GAL_MS); }
 $("#gprev").onclick = () => { gshow(gi - 1); gauto(); }; $("#gnext").onclick = () => { gshow(gi + 1); gauto(); };
-galList().then(list => {
-  GALERIA = list.map(f => GAL_DIR + "/" + encodeURIComponent(f));
-  gimgs = GALERIA.map(src => { const i = new Image(); i.alt = ""; i.decoding = "async"; i.src = src; gal.append(i); return i; });
-  gdots.innerHTML = GALERIA.map(() => "<i></i>").join("");
-  const multi = GALERIA.length > 1; $("#gprev").hidden = $("#gnext").hidden = gdots.hidden = !multi;
+galList().then(async list => {
+  const loaded = await Promise.all(list.map(f => new Promise(ok => { const i = new Image(), src = GAL_DIR + "/" + encodeURIComponent(f); i.alt = ""; i.onload = () => ok(i); i.onerror = () => ok(null); i.src = src; })));
+  gimgs = loaded.filter(Boolean); gimgs.forEach(i => gal.append(i));
+  gdots.innerHTML = gimgs.map(() => "<i></i>").join("");
+  const multi = gimgs.length > 1; $("#gprev").hidden = $("#gnext").hidden = gdots.hidden = !multi;
   gshow(0); gauto();
 });
 /* Alinea "Hub.Of.Original.Development" al ancho de HOOD/STUDIO */
@@ -110,12 +120,12 @@ function fitSub() {
 addEventListener("resize", fitSub); if (document.fonts) document.fonts.ready.then(fitSub);
 /* Botón flotante de Discord: no se puede quitar, pero se arrastra a cualquier parte de la pantalla */
 (() => {
-  const el = $("#dc"), KEY = "dcpos"; let moved = false;
+  const el = $("#dc"), KEY = "dcpos2"; let moved = false;
   const clamp = (x, y) => [Math.min(Math.max(0, x), innerWidth - el.offsetWidth), Math.min(Math.max(0, y), innerHeight - el.offsetHeight)];
   const put = (x, y) => { [x, y] = clamp(x, y); el.style.left = x + "px"; el.style.top = y + "px"; };
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ fx: el.offsetLeft / innerWidth, fy: el.offsetTop / innerHeight })); } catch (e) {} };
   let init = null; try { init = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
-  const place = () => init && typeof init.fx === "number" ? put(init.fx * innerWidth, init.fy * innerHeight) : put(innerWidth - el.offsetWidth - 16, innerHeight - el.offsetHeight - 16);
+  const place = () => init && typeof init.fx === "number" ? put(init.fx * innerWidth, init.fy * innerHeight) : put(16, innerHeight - el.offsetHeight - 112);
   place(); if (document.fonts) document.fonts.ready.then(place);
   addEventListener("resize", () => { init = { fx: el.offsetLeft / innerWidth, fy: el.offsetTop / innerHeight }; place(); });
   let sx, sy, ox, oy, id = null;
