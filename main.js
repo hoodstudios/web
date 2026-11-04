@@ -115,6 +115,11 @@ galList().then(async list => {
   const multi = gimgs.length > 1; $("#gprev").hidden = $("#gnext").hidden = gdots.hidden = glock.hidden = !multi;
   gshow(0); gauto();
 });
+/* Frase aleatoria bajo el carrusel (Splashes.txt) */
+fetch("Splashes.txt").then(r => r.ok ? r.text() : "").then(t => {
+  const l = t.split(/\r?\n/).map(x => x.trim()).filter(x => x && !x.startsWith("#"));
+  if (l.length) $("#splash").textContent = l[Math.floor(Math.random() * l.length)];
+}).catch(() => {});
 /* Alinea "Hub.Of.Original.Development" al ancho de HOOD/STUDIO */
 function fitSub() {
   const h = $(".hl h1"), p = $(".hl .sub"); if (!h || !p || $("#v-inicio").hidden) return;
@@ -517,6 +522,7 @@ const Game = (() => {
     }
     parts(k);
   }
+  const drawFace = (x, y) => { if (ok(face)) c.drawImage(face, x, y, S, S); else { c.fillStyle = "#f7b41e"; c.fillRect(x, y, S, S); } }; // si la cabeza no carga, no rompe el juego
   function draw() {
     c.clearRect(0, 0, W, 240); c.imageSmoothingEnabled = false;
     if (s.biome) { c.fillStyle = "rgba(190,90,30,.25)"; s.mesas.forEach(m => { c.fillRect(m.x, GY - m.h, m.w, m.h); }); c.fillStyle = "rgba(220,120,50,.4)"; s.mesas.forEach(m => c.fillRect(m.x, GY - m.h, m.w, 4)); }
@@ -529,8 +535,8 @@ const Game = (() => {
       if (o.fl && ok(IMG.flor)) c.drawImage(IMG.flor, o.x, GY - o.h - B, B, B);
     });
     s.tot.forEach(t => { const y = t.y + Math.sin(s.dist / 15) * 3; if (ok(IMG.totem)) c.drawImage(IMG.totem, t.x, y, 26, 26); else { c.fillStyle = "#e8b923"; c.fillRect(t.x, y, 26, 26); } });
-    if (st !== "over" && (s.inv <= 0 || Math.floor(s.inv / 4) % 2)) c.drawImage(face, 60, s.y, S, S);
-    if (st === "over") { c.globalAlpha = .4; c.drawImage(face, 60, s.y, S, S); c.globalAlpha = 1; }
+    if (st !== "over" && (s.inv <= 0 || Math.floor(s.inv / 4) % 2)) drawFace(60, s.y);
+    if (st === "over") { c.globalAlpha = .4; drawFace(60, s.y); c.globalAlpha = 1; }
     s.pts.forEach(q => { c.fillStyle = q.c; c.globalAlpha = Math.min(1, q.l / 20); c.fillRect(q.x, q.y, 4, 4); }); c.globalAlpha = 1;
     c.fillStyle = "#f5ecd6"; c.font = "700 16px 'Noto Sans', sans-serif"; c.textAlign = "right"; c.fillText(String(Math.floor(s.dist / 10)).padStart(5, "0"), W - 16, 28);
     for (let i = 0; i < s.totems; i++) if (ok(IMG.totem)) c.drawImage(IMG.totem, 14 + i * 26, 10, 22, 22);

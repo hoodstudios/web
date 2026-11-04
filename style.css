@@ -1,538 +1,152 @@
-/* HOOD STUDIO — cuentas, jugadores, minijuego (Firebase)
- * Cuentas: Firebase Authentication (correo falso nombre@hoodstudio.app + contraseña).
- * Jugadores y ranking: Firestore (colecciones "players" y "scores"), compartidos por todos. */
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-import {
-  getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
-  signInWithEmailAndPassword, signOut, deleteUser,
-  GoogleAuthProvider, signInWithPopup, linkWithPopup, unlink, updatePassword, getAdditionalUserInfo
-} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import {
-  getFirestore, doc, getDoc, setDoc, updateDoc, getDocs, collection, query, where, orderBy, limit, serverTimestamp
-} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+/* HOOD STUDIO — estilos */
+:root{
+  --gold:#f7b41e; --gold-d:#c88a0a; --bg:#0d0d0f; --panel:#17171b; --panel2:#1f1f25;
+  --line:#2c2c34; --text:#f5ecd6; --muted:#a89a70; --err:#ff7a6b; --ok:#6fd37a;
+  --r:12px; --pix:"Silkscreen","Noto Sans",monospace;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:400 16px/1.55 "Noto Sans",system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+a{color:var(--gold);text-decoration:none}
+a:hover{text-decoration:underline}
+img{max-width:100%}
+h1,h2,h3,h4{line-height:1.15;margin:0 0 .5em}
+h2{font-size:clamp(1.6rem,3vw,2.2rem);font-weight:800}
+.muted{color:var(--muted)} .small{font-size:.85rem}
+.ok{color:var(--ok)} .empty{color:var(--muted);text-align:center;padding:18px}
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCStG20rFbespxXq39zbGCbIERhWmWWRtQ",
-  authDomain: "hoodstudioweb.firebaseapp.com",
-  projectId: "hoodstudioweb",
-  storageBucket: "hoodstudioweb.firebasestorage.app",
-  messagingSenderId: "173223418478",
-  appId: "1:173223418478:web:be7f06f9c500612f42647f"
-};
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app), db = getFirestore(app);
+/* barra superior */
+.top{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:20px;padding:10px 24px;background:rgba(13,13,15,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.logo img{display:block;border-radius:8px}
+.nav{display:flex;gap:4px;flex:1;flex-wrap:wrap}
+.nav a{color:var(--text);padding:8px 14px;border-radius:8px;font-weight:700;font-size:.95rem}
+.nav a:hover{background:var(--panel2);text-decoration:none}
+.nav a.on{background:var(--gold);color:#111}
+.auth{display:flex;gap:8px;align-items:center}
+.me img{width:40px;height:40px;border-radius:8px;image-rendering:pixelated;border:2px solid var(--gold);display:block}
 
-import { createAvatar } from "./avatar.js";
+/* botones */
+.btn{font:700 .9rem "Noto Sans",sans-serif;color:var(--text);background:transparent;border:2px solid var(--line);border-radius:10px;padding:8px 16px;cursor:pointer;transition:.15s}
+.btn:hover{border-color:var(--gold);color:var(--gold)}
+.btn.solid{background:var(--gold);border-color:var(--gold);color:#111}
+.btn.solid:hover{background:#ffc94a;color:#111}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.round{width:40px;height:40px;padding:0;border-radius:50%;font-size:1.4rem;line-height:1;background:rgba(0,0,0,.55);border-color:rgba(255,255,255,.35);display:grid;place-items:center}
+#glock::before{content:"";width:14px;height:14px;border:2px solid currentColor;border-radius:50%}
+#glock[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:#111}
+#glock[aria-pressed="true"]::before{background:currentColor}
+.gbtn{width:100%;margin-top:6px}
 
-(() => {
-"use strict";
-const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
-const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const headUrl = n => "https://minotar.net/helm/" + encodeURIComponent(n) + "/64.png";
-const DEF = headUrl("MHF_Steve");
-const okAv = a => typeof a === "string" && (a.startsWith("https://minotar.net/helm/") || a.startsWith("data:image/png;base64,")) ? a : DEF;
-const mail = n => n.toLowerCase() + "@hoodstudio.app";
+main{flex:1;width:100%}
+.view{padding:32px 24px;max-width:1000px;margin:0 auto}
+#v-inicio{max-width:none;padding:0}
 
-/* Catálogo de medallas: la clave (id) es lo que guardas en Firestore, en players/<jugador>/medalIds.
- * Las imágenes van en la carpeta "medallas/" de tu repositorio (PNG o WebP cuadrados). */
-const MEDALS = {
-  pionero:  { name: "Pionero",  desc: "Se registró durante la beta", img: "medallas/pionero.png" },
-  campeon:  { name: "Campeón",  desc: "Ganó un evento oficial",      img: "medallas/campeon.png" },
-  creador:  { name: "Creador",  desc: "Aportó al estudio",           img: "medallas/creador.png" }
-};
-/* Minijuegos con récord personal: col = colección de Firestore, field = campo con el récord */
-const GAMES = [
-  { id: "runner", name: "Salta el cactus", col: "scores", field: "score", unit: "puntos" }
-];
-const medalCount = d => Array.isArray(d.medalIds) ? d.medalIds.length : (Number(d.medals) || 0);
-const pLink = n => "#perfil/" + encodeURIComponent(n);
+/* portada */
+.hero{position:relative;min-height:min(86vh,720px);overflow:hidden;display:flex;align-items:center;background:#000}
+.gal{position:absolute;inset:0}
+.gal img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity 1.1s ease;image-rendering:auto}
+.gal img.prev{opacity:1;z-index:1}
+.gal img.on{opacity:1;z-index:2}
+.shade{position:absolute;inset:0;z-index:3;background:linear-gradient(90deg,rgba(0,0,0,.82) 0%,rgba(0,0,0,.45) 45%,rgba(0,0,0,.1) 100%),linear-gradient(0deg,rgba(13,13,15,1) 0%,transparent 25%)}
+.hl{position:relative;z-index:4;padding:40px clamp(24px,7vw,96px);max-width:640px}
+.hl h1{display:inline-block;font:700 clamp(3.2rem,9vw,6.4rem)/.95 var(--pix);letter-spacing:.02em;margin:0 0 10px;color:#fff;text-shadow:4px 4px 0 var(--gold-d)}
+.hl .sub{display:block;margin:0 0 18px;font:700 10px var(--pix);color:var(--gold);white-space:nowrap}
+.hl .desc{font-size:1.15rem;max-width:34ch;margin:0 0 22px;color:#fff}
+.social{display:flex;gap:10px}
+.social a{width:44px;height:44px;border-radius:10px;display:grid;place-items:center;color:#fff;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);transition:.15s}
+.social a:hover{background:var(--gold);color:#111;text-decoration:none;transform:translateY(-2px)}
+.galctl{position:absolute;z-index:5;left:clamp(24px,7vw,96px);right:24px;bottom:22px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.gnav{display:flex;gap:8px;align-items:center}
+.gdots{display:flex;gap:6px;align-items:center;margin-left:4px}
+.gdots i{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.35);display:block}
+.gdots i.on{background:var(--gold);width:22px;border-radius:6px}
+.splash{font:400 .85rem var(--pix);color:var(--gold);opacity:.9}
+.proj{position:absolute;z-index:5;right:24px;bottom:22px;display:flex;flex-direction:column;align-items:center;gap:6px;width:150px;padding:10px;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.2);border-radius:var(--r);color:#fff;font:700 .72rem var(--pix);text-transform:uppercase;text-align:center}
+.proj:hover{border-color:var(--gold);text-decoration:none}
+.proj img{width:100%;height:auto;display:block}
 
-let profile = null, ready = false, signing = false;
-let avatarFx = null;
-const stopAvatar = () => { if (avatarFx) { avatarFx.destroy(); avatarFx = null; } };
-const me = () => profile;
+/* quiénes somos */
+.about{max-width:1000px;margin:0 auto;padding:48px 24px 64px}
+.about>p{max-width:70ch;color:#e6dcc0}
+.mv{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin:24px 0}
+.team{display:block;width:100%;height:auto;border-radius:var(--r);border:1px solid var(--line);margin-top:8px}
 
-/* ---------- Vistas ---------- */
-const V = ["inicio", "proyectos", "calendario", "jugadores", "perfil", "juego", "mercado", "creditos"];
-function hashParts() { const [h, ...r] = location.hash.slice(1).split("/"); let a = ""; try { a = decodeURIComponent(r.join("/")); } catch (e) {} return [h, a]; }
-function refreshView() { const [h, a] = hashParts(); if (h === "jugadores") renderPlayers(); else if (h === "perfil") renderProfile(a); }
-function route() {
-  stopAvatar();
-  const [h, arg] = hashParts(), cur = V.includes(h) ? h : "inicio";
-  V.forEach(v => $("#v-" + v).hidden = v !== cur);
-  $("#dc").hidden = cur !== "inicio";
-  $$(".nav a").forEach(a => a.classList.toggle("on", a.dataset.v === (["jugadores", "perfil", "juego", "mercado"].includes(cur) ? "comunidad" : cur)));
-  if (cur === "jugadores") renderPlayers();
-  if (cur === "perfil") renderProfile(arg);
-  if (cur === "juego") { renderRank(); Game.show(); } else Game.stop();
-  window.scrollTo(0, 0); if (cur === "inicio") fitSub();
-}
-addEventListener("hashchange", route);
+/* tarjetas, tablas */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+.card h3{color:var(--gold);font-size:1.15rem}
+.card p{margin:0}
+.tablewrap{padding:0;overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:10px 16px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-size:.8rem;text-transform:uppercase;letter-spacing:.06em}
+tr:last-child td{border-bottom:0}
+td:first-child,th:first-child{width:48px;color:var(--muted)}
+tr.mine{background:rgba(247,180,30,.12)}
+.pl{display:inline-flex;align-items:center;gap:10px}
+.pl img{width:28px;height:28px;border-radius:5px;image-rendering:pixelated}
+.subnav{display:flex;gap:6px;margin-bottom:20px;border-bottom:1px solid var(--line)}
+.subnav a{padding:10px 16px;color:var(--muted);font-weight:700;border-bottom:3px solid transparent;margin-bottom:-1px}
+.subnav a:hover{color:var(--text);text-decoration:none}
+.subnav a.on{color:var(--gold);border-color:var(--gold)}
+.back{display:inline-block;margin-bottom:16px}
 
-/* ---------- Galería del inicio: usa TODAS las imágenes de la carpeta "galeria/" ---------- */
-const REPO = "hoodstudios/web", GAL_DIR = "galeria", GAL_FALLBACK = ["galeria/equipo.png", "galeria/hardhood.png"];
-let gi = 0, gtimer = 0, gimgs = [];
-const gal = $("#gal");
-async function loadGal() {
-  try {
-    const c = sessionStorage.getItem("hood_gal"); if (c) return JSON.parse(c);
-    const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${GAL_DIR}`); if (!r.ok) throw 0;
-    const l = (await r.json()).filter(f => f.type === "file" && /\.(png|jpe?g|webp|gif)$/i.test(f.name))
-      .sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true })).map(f => GAL_DIR + "/" + encodeURIComponent(f.name));
-    if (!l.length) throw 0; sessionStorage.setItem("hood_gal", JSON.stringify(l)); return l;
-  } catch (e) { return GAL_FALLBACK; }
-}
-function gshow(i) {
-  if (!gimgs.length) return; gi = (i + gimgs.length) % gimgs.length;
-  gimgs.forEach((im, n) => im.classList.toggle("on", n === gi));
-}
-let glocked = false;
-function gauto() { clearInterval(gtimer); if (!glocked && !matchMedia("(prefers-reduced-motion: reduce)").matches) gtimer = setInterval(() => gshow(gi + 1), 5000); }
-const LK = ['<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/></svg>', '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>'];
-const glk = $("#glock"); glk.innerHTML = LK[0];
-glk.onclick = () => { glocked = !glocked; glk.innerHTML = LK[+glocked]; glk.setAttribute("aria-pressed", glocked); glk.setAttribute("aria-label", glocked ? "Reanudar" : "Fijar imagen"); gauto(); };
-/* Splash aleatorio: una línea de splashes.txt en cada carga */
-const SPL_DEF = "¡Bienvenido a HOOD STUDIO!";
-fetch("splashes.txt").then(r => r.ok ? r.text() : "").then(t => {
-  const l = t.split(/\r?\n/).map(x => x.trim()).filter(x => x && !x.startsWith("#"));
-  $("#splash").textContent = l.length ? l[Math.floor(Math.random() * l.length)] : SPL_DEF;
-}).catch(() => { $("#splash").textContent = SPL_DEF; });
-$("#gprev").onclick = () => { gshow(gi - 1); gauto(); }; $("#gnext").onclick = () => { gshow(gi + 1); gauto(); };
-loadGal().then(list => {
-  gal.innerHTML = ""; gimgs = list.map(src => { const im = new Image(); im.src = src; im.alt = ""; gal.append(im); return im; });
-  gshow(0); gauto();
-});
-/* Alinea "Hub.Of.Original.Development" al ancho de HOOD/STUDIO */
-function fitSub() {
-  const h = $(".hl h1"), p = $(".hl .sub"); if (!h || !p || $("#v-inicio").hidden) return;
-  p.style.fontSize = "10px"; p.style.fontSize = (10 * h.getBoundingClientRect().width / p.scrollWidth) + "px";
-}
-addEventListener("resize", fitSub); if (document.fonts) document.fonts.ready.then(fitSub);
-/* Botón de Discord: fijo, pero se puede arrastrar a cualquier lado */
-const dc = $("#dc"); let dd = null, dmoved = false;
-function dplace(x, y) { const r = dc.getBoundingClientRect(); dc.style.left = Math.min(Math.max(0, x), innerWidth - r.width) + "px"; dc.style.top = Math.min(Math.max(0, y), innerHeight - r.height) + "px"; dc.style.bottom = "auto"; }
-try { const p = JSON.parse(localStorage.getItem("hood_dc")); if (p) dplace(p.x, p.y); } catch (e) {}
-dc.addEventListener("pointerdown", e => { const r = dc.getBoundingClientRect(); dd = { ox: e.clientX - r.left, oy: e.clientY - r.top, sx: e.clientX, sy: e.clientY }; dmoved = false; });
-addEventListener("pointermove", e => { if (!dd) return; if (Math.abs(e.clientX - dd.sx) + Math.abs(e.clientY - dd.sy) > 6) dmoved = true; if (dmoved) dplace(e.clientX - dd.ox, e.clientY - dd.oy); });
-addEventListener("pointerup", () => { if (dd && dmoved) { try { localStorage.setItem("hood_dc", JSON.stringify({ x: parseFloat(dc.style.left), y: parseFloat(dc.style.top) })); } catch (e) {} } dd = null; });
-dc.addEventListener("click", e => { e.preventDefault(); if (dmoved) { dmoved = false; return; } window.open("https://discord.gg/YqwfqmcMbW", "_blank", "noopener"); }, true);
-addEventListener("resize", () => { if (!dc.hidden && dc.style.left) dplace(parseFloat(dc.style.left), parseFloat(dc.style.top)); });
+/* arcade */
+.game{display:grid;grid-template-columns:minmax(0,2fr) minmax(220px,1fr);gap:16px;align-items:start}
+@media(max-width:800px){.game{grid-template-columns:1fr}}
+canvas#cv{display:block;width:100%;height:auto;aspect-ratio:10/3;border-radius:8px;background:linear-gradient(#1c1c24,#0d0d0f);outline:none;touch-action:manipulation;cursor:pointer}
+canvas#cv:focus-visible{outline:2px solid var(--gold)}
+#hint{margin-top:10px!important}
 
-/* ---------- Cuentas ---------- */
-function fe(e) { // errores de Firebase -> mensajes en español
-  const c = (e && e.code) || "";
-  if (c === "auth/email-already-in-use") return "Ese nombre ya está registrado.";
-  if (c === "auth/invalid-credential" || c === "auth/wrong-password" || c === "auth/user-not-found" || c === "auth/invalid-email") return "Usuario o contraseña incorrectos.";
-  if (c === "auth/weak-password") return "La contraseña debe tener al menos 6 caracteres.";
-  if (c === "auth/too-many-requests") return "Demasiados intentos. Espera un momento e inténtalo de nuevo.";
-  if (c === "auth/requires-recent-login") return "Por seguridad, cierra sesión, vuelve a entrar y cambia la contraseña de inmediato.";
-  if (c === "auth/popup-blocked") return "Tu navegador bloqueó la ventana emergente. Permítela e inténtalo de nuevo.";
-  if (c === "auth/unauthorized-domain") return "Este dominio no está autorizado en Firebase (Authentication → Configuración).";
-  if (c === "auth/network-request-failed") return "Sin conexión. Revisa tu internet (o el bloqueador del navegador).";
-  if (c === "auth/operation-not-allowed") return "El registro con correo/contraseña no está activado en Firebase.";
-  if (c === "permission-denied" || c === "firestore/permission-denied") return "Permiso denegado por las reglas de Firestore.";
-  console.warn(e); return "Ocurrió un error. Inténtalo de nuevo.";
-}
-/* Lee el PNG de la skin: devuelve la cabeza (avatar), la skin completa normalizada y si es de brazos delgados */
-function readSkin(file) {
-  return new Promise((ok, no) => {
-    const img = new Image(), url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      if (img.width !== 64 || (img.height !== 64 && img.height !== 32)) return no(new Error("size"));
-      const sk = document.createElement("canvas"); sk.width = 64; sk.height = img.height;
-      const sx = sk.getContext("2d", { willReadFrequently: true }); sx.drawImage(img, 0, 0);
-      const hd = document.createElement("canvas"); hd.width = hd.height = 64;
-      const hx = hd.getContext("2d"); hx.imageSmoothingEnabled = false;
-      hx.drawImage(sk, 8, 8, 8, 8, 0, 0, 64, 64);
-      if (img.height === 64) hx.drawImage(sk, 40, 8, 8, 8, 0, 0, 64, 64);
-      let slim = false;
-      if (img.height === 64) { const d = sx.getImageData(55, 20, 1, 12).data; slim = [3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47].every(i => d[i] === 0); }
-      const skin = sk.toDataURL("image/png");
-      if (skin.length > 30000) return no(new Error("big"));
-      ok({ head: hd.toDataURL("image/png"), skin, slim });
-    };
-    img.onerror = () => no(new Error("img")); img.src = url;
-  });
-}
-const skinErr = e => e && e.message === "big" ? "La skin pesa demasiado. Prueba con otra o comprímela." : "La skin debe ser un PNG de 64×64 (o 64×32).";
-async function loadProfile(user) {
-  profile = null;
-  if (!user) return;
-  try {
-    const s = await getDoc(doc(db, "players", user.uid));
-    if (s.exists()) { const d = s.data(); profile = { uid: user.uid, name: d.name, avatar: okAv(d.avatar), medalIds: Array.isArray(d.medalIds) ? d.medalIds : [] }; }
-  } catch (e) { console.warn(e); }
-}
-async function signUp(name, pw, prem, file, email) {
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "El correo no es válido.";
-  let avatar = DEF, skinData = null, slim = false;
-  if (prem) avatar = headUrl(name);
-  else if (file) { try { const r = await readSkin(file); avatar = r.head; skinData = r.skin; slim = r.slim; } catch (e) { return skinErr(e); } }
-  signing = true;
-  try {
-    let cred;
-    try { cred = await createUserWithEmailAndPassword(auth, mail(name), pw); } catch (e) { return fe(e); }
-    try { await setDoc(doc(db, "players", cred.user.uid), { name, avatar, medalIds: [], createdAt: serverTimestamp() }); }
-    catch (e) { try { await deleteUser(cred.user); } catch (_) {} return fe(e); }
-    try { await setDoc(doc(db, "avatars", cred.user.uid), { skin: skinData, slim }); } catch (e) { console.warn(e); }
-    if (email) { try { await setDoc(doc(db, "emails", cred.user.uid), { email }); } catch (e) { console.warn(e); } }
-    profile = { uid: cred.user.uid, name, avatar, medalIds: [] };
-    return null;
-  } finally { signing = false; }
-}
-async function logIn(name, pw) {
-  signing = true;
-  try {
-    let cred;
-    try { cred = await signInWithEmailAndPassword(auth, mail(name), pw); } catch (e) { return fe(e); }
-    await loadProfile(cred.user);
-    if (!profile) { await signOut(auth); return "No se encontró el perfil de esta cuenta."; }
-    return null;
-  } finally { signing = false; }
-}
-/* ---------- Google (opcional): recuperación de cuenta ---------- */
-const gErr = e => {
-  const c = (e && e.code) || "";
-  if (c === "auth/popup-closed-by-user" || c === "auth/cancelled-popup-request") return false; // el usuario cerró la ventana
-  if (c === "auth/operation-not-allowed") return "El acceso con Google no está activado en Firebase.";
-  if (c === "auth/credential-already-in-use" || c === "auth/email-already-in-use") return "Esa cuenta de Google ya está vinculada a otro perfil.";
-  if (c === "auth/provider-already-linked") return "Ya tienes una cuenta de Google vinculada.";
-  return fe(e);
-};
-let justGoogle = false;
-async function logInGoogle() {
-  signing = true;
-  try {
-    let cred;
-    try { cred = await signInWithPopup(auth, new GoogleAuthProvider()); } catch (e) { return gErr(e); }
-    const isNew = (getAdditionalUserInfo(cred) || {}).isNewUser;
-    await loadProfile(cred.user);
-    if (!profile) {
-      if (isNew) { try { await deleteUser(cred.user); } catch (_) { await signOut(auth); } return "Esa cuenta de Google no está vinculada a ningún perfil. Entra con tu contraseña y vincúlala desde tu perfil."; }
-      await signOut(auth); return "No se encontró el perfil de esta cuenta.";
-    }
-    justGoogle = true; return null;
-  } finally { signing = false; }
-}
-async function linkGoogle() {
-  const u = auth.currentUser; if (!u) return "Inicia sesión primero.";
-  try { await linkWithPopup(u, new GoogleAuthProvider()); return null; } catch (e) { return gErr(e); }
-}
-async function unlinkGoogle() {
-  const u = auth.currentUser; if (!u) return "Inicia sesión primero.";
-  try { await unlink(u, "google.com"); return null; } catch (e) { return fe(e); }
-}
-async function changePassword(pw) {
-  const u = auth.currentUser; if (!u) return "Inicia sesión primero.";
-  if (pw.length < 6) return "La contraseña debe tener al menos 6 caracteres.";
-  try { await updatePassword(u, pw); return null; } catch (e) { return fe(e); }
-}
-const googleInfo = () => { const u = auth.currentUser; return u && u.providerData.find(p => p.providerId === "google.com"); };
+/* perfil */
+.prof{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
+.pface{width:96px;height:96px;border-radius:12px;image-rendering:pixelated;border:3px solid var(--gold)}
+.pinfo{flex:1;min-width:220px}
+.pinfo .btn{margin:8px 8px 0 0}
+.sec{margin:28px 0 12px;font-size:1.2rem}
+.avatarbox{text-align:center}
+.avatarbox canvas{display:block;margin:0 auto 8px;width:min(100%,420px);height:320px;cursor:pointer}
+.medals{display:flex;flex-wrap:wrap;gap:12px}
+.medal{display:flex;flex-direction:column;align-items:center;gap:6px;width:96px;padding:12px 8px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);text-align:center;font-size:.8rem}
+.medal img,.mfb{width:48px;height:48px;object-fit:contain;image-rendering:pixelated;font-size:2rem;line-height:48px}
+.records{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.rec h4{color:var(--muted);font-size:.85rem;text-transform:uppercase}
+.big{font-size:2rem;font-weight:800;color:var(--gold)} .big small{font-size:.9rem;color:var(--muted);font-weight:500}
+.skinform{margin-top:14px;background:var(--panel2)}
+.seg hr{border:0;border-top:1px solid var(--line);margin:16px 0}
+.seg p{margin:0 0 10px}
 
-function renderAuth() {
-  const box = $("#auth"), u = me(); box.textContent = "";
-  if (!ready) return;
-  const mk = (t, c, f) => { const b = document.createElement("button"); b.className = c; b.textContent = t; b.onclick = f; return b; };
-  if (u) {
-    const d = document.createElement("a"); d.className = "me"; d.href = pLink(u.name); d.title = "Mi perfil";
-    d.innerHTML = `<img src="${esc(u.avatar)}" alt="Mi perfil">`;
-    box.append(d);
-  } else box.append(mk("Iniciar sesión", "btn", () => openM("login")), mk("Registrarse", "btn solid", () => openM("signup")));
-}
+/* formularios */
+label{display:block;margin:12px 0 4px;font-weight:700;font-size:.9rem}
+input[type=text],input[type=password],input[type=email],input:not([type]),input[type=file]{width:100%;padding:10px 12px;background:var(--bg);color:var(--text);border:2px solid var(--line);border-radius:8px;font:inherit}
+input:focus{outline:none;border-color:var(--gold)}
+.chk{display:flex;align-items:center;gap:8px;font-weight:400}
+.chk input{width:auto;accent-color:var(--gold)}
+.err{min-height:1.3em;margin:10px 0 0;color:var(--err);font-size:.9rem}
+.err.ok{color:var(--ok)}
+form .btn.solid{width:100%;margin-top:6px}
+#glogin{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
 
-/* ---------- Modal ---------- */
-const modal = $("#modal"), form = $("#form"); let mode = "login", last = null;
-function setMode(m) {
-  mode = m; $$(".tabs button").forEach(t => t.setAttribute("aria-selected", t.dataset.m === m));
-  $("#su").hidden = m !== "signup"; $("#glogin").hidden = m !== "login"; $("#go").textContent = m === "login" ? "Iniciar sesión" : "Crear cuenta";
-  $("#pw").autocomplete = m === "login" ? "current-password" : "new-password"; $("#err").textContent = "";
-}
-const openM = m => { last = document.activeElement; form.reset(); setMode(m); $("#skinbox").hidden = true; modal.hidden = false; $("#un").focus(); };
-const closeM = () => { modal.hidden = true; last && last.focus && last.focus(); };
-$$(".tabs button").forEach(t => t.onclick = () => setMode(t.dataset.m));
-$("#prem").onchange = e => $("#skinbox").hidden = e.target.checked;
-$("#mx").onclick = closeM; modal.onclick = e => { if (e.target === modal) closeM(); };
-addEventListener("keydown", e => { if (e.key === "Escape" && !modal.hidden) closeM(); });
-$("#gbtn").onclick = async () => {
-  const err = $("#err"); err.textContent = ""; $("#gbtn").disabled = true;
-  const r = await logInGoogle();
-  $("#gbtn").disabled = false;
-  if (r === false) return;
-  if (r) return void (err.textContent = r);
-  closeM(); renderAuth(); Game.refresh();
-  if (profile) { const t = pLink(profile.name); if (location.hash === t) refreshView(); else location.hash = t; }
-};
-form.onsubmit = async e => {
-  e.preventDefault(); const err = $("#err"); err.textContent = "";
-  const name = $("#un").value.trim(), pw = $("#pw").value;
-  if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return void (err.textContent = "Tu nombre de Minecraft tiene de 3 a 16 caracteres: letras, números o guion bajo.");
-  if (pw.length < 6) return void (err.textContent = "La contraseña debe tener al menos 6 caracteres.");
-  $("#go").disabled = true;
-  const r = mode === "login" ? await logIn(name, pw) : await signUp(name, pw, $("#prem").checked, $("#skin").files[0], $("#mail").value.trim());
-  $("#go").disabled = false;
-  if (r) return void (err.textContent = r);
-  closeM(); renderAuth(); Game.refresh(); refreshView();
-};
+/* ventana de cuenta */
+.modal{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.72);display:grid;place-items:center;padding:16px}
+.box{position:relative;width:min(100%,400px);max-height:92vh;overflow:auto;padding:24px}
+.x{position:absolute;top:8px;right:10px;width:34px;height:34px;border:0;background:none;color:var(--muted);font-size:1.6rem;cursor:pointer}
+.x:hover{color:var(--gold)}
+.tabs{display:flex;gap:4px;margin:0 28px 10px 0}
+.tabs button{flex:1;padding:9px;background:var(--panel2);color:var(--muted);border:0;border-radius:8px;font:700 .9rem "Noto Sans",sans-serif;cursor:pointer}
+.tabs button[aria-selected=true]{background:var(--gold);color:#111}
 
-/* ---------- Jugadores ---------- */
-async function renderPlayers() {
-  const tb = $("#players");
-  try {
-    const snap = await getDocs(query(collection(db, "players"), limit(100)));
-    const list = snap.docs.map(d => d.data()).sort((a, b) => medalCount(b) - medalCount(a) || String(a.name).localeCompare(String(b.name)));
-    tb.innerHTML = list.length
-      ? list.map((u, i) => `<tr><td>${i + 1}</td><td><span class="pl"><img src="${esc(okAv(u.avatar))}" alt=""><a href="${esc(pLink(u.name))}">${esc(u.name)}</a></span></td><td>${medalCount(u)}</td></tr>`).join("")
-      : `<tr><td colspan="3" class="empty">Aún no hay jugadores registrados.</td></tr>`;
-  } catch (e) { console.warn(e); tb.innerHTML = `<tr><td colspan="3" class="empty">No se pudo cargar la lista de jugadores.</td></tr>`; }
-}
+/* pie y botón de Discord */
+.foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:20px 24px;border-top:1px solid var(--line);color:var(--muted);font-size:.9rem}
+.dc{position:fixed;z-index:60;left:16px;top:70vh;cursor:grab;touch-action:none;user-select:none}
+.dc.drag{cursor:grabbing;opacity:.85}
+.dc a{display:flex;align-items:center;gap:8px;padding:10px 16px;background:#5865f2;color:#fff;border-radius:999px;font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,.5)}
+.dc a:hover{text-decoration:none;filter:brightness(1.1)}
 
-/* ---------- Perfil ---------- */
-const fmtDate = ts => { try { return ts.toDate().toLocaleDateString("es-MX", { year: "numeric", month: "long", day: "numeric" }); } catch (e) { return "—"; } };
-async function updateSkin(prem, file, slimChk) {
-  const u = me(); if (!u) return "Inicia sesión primero.";
-  let avatar, skinData = null, slim = !!slimChk;
-  if (prem) avatar = headUrl(u.name);
-  else if (file) { try { const r = await readSkin(file); avatar = r.head; skinData = r.skin; slim = r.slim; } catch (e) { return skinErr(e); } }
-  else return "Sube tu skin o marca la opción de cuenta premium.";
-  try {
-    await updateDoc(doc(db, "players", u.uid), { avatar });
-    await setDoc(doc(db, "avatars", u.uid), { skin: skinData, slim });
-    const sref = doc(db, "scores", u.uid), s = await getDoc(sref);
-    if (s.exists()) await updateDoc(sref, { avatar });
-    profile.avatar = avatar; return null;
-  } catch (e) { return fe(e); }
+@media(max-width:640px){
+  .top{flex-wrap:wrap;gap:8px;padding:8px 12px}
+  .nav{order:3;flex-basis:100%}
+  .nav a{padding:6px 10px;font-size:.85rem}
+  .proj{display:none}
+  .view{padding:24px 16px}
 }
-let profTok = 0;
-async function renderProfile(name) {
-  const box = $("#perfil-box"), tok = ++profTok;
-  if (!name) { box.innerHTML = `<p class="muted">Jugador no encontrado.</p>`; return; }
-  box.innerHTML = `<p class="muted">Cargando…</p>`;
-  try {
-    const q = await getDocs(query(collection(db, "players"), where("name", "==", name), limit(1)));
-    if (tok !== profTok) return;
-    if (q.empty) { box.innerHTML = `<p class="muted">No existe ningún jugador llamado «${esc(name)}».</p>`; return; }
-    const uid = q.docs[0].id, p = q.docs[0].data(), mine = !!me() && me().uid === uid;
-    const mdoc = getDoc(doc(db, "avatars", uid)).then(x => x.exists() ? x.data() : null).catch(() => null);
-    const recs = await Promise.all(GAMES.map(async g => {
-      try { const s = await getDoc(doc(db, g.col, uid)); return [g, s.exists() ? Number(s.data()[g.field]) || 0 : null]; }
-      catch (e) { return [g, null]; }
-    }));
-    if (tok !== profTok) return;
-    const md = await mdoc;
-    if (tok !== profTok) return;
-    stopAvatar();
-    const ids = Array.isArray(p.medalIds) ? p.medalIds : [];
-    box.innerHTML = `
-      <div class="card prof">
-        <img class="pface" src="${esc(okAv(p.avatar))}" alt="Cabeza de ${esc(p.name)}">
-        <div class="pinfo">
-          <h2>${esc(p.name)}</h2>
-          <p class="muted">Miembro desde ${esc(fmtDate(p.createdAt))}</p>
-          ${mine ? `<button class="btn" id="skinbtn" type="button">Cambiar skin</button>
-          <form class="card skinform" id="skinform" hidden novalidate>
-            <label class="chk"><input type="checkbox" id="sprem"> Usar mi skin oficial (cuenta premium)</label>
-            <div id="slimrow" hidden><label class="chk"><input type="checkbox" id="sslim"> Mi skin usa brazos delgados (modelo Alex)</label></div>
-            <div id="sbox"><label for="sfile">Sube tu skin (PNG 64×64)</label><input id="sfile" type="file" accept="image/png"></div>
-            <p class="err" id="serr" role="alert"></p>
-            <button class="btn solid" id="sgo" type="submit">Guardar</button>
-          </form>` : ""}
-        </div>
-      </div>
-      <h3 class="sec">Avatar</h3>
-      <div class="card avatarbox">
-        <canvas id="acv" role="img" aria-label="Avatar de ${esc(p.name)}"></canvas>
-        <p class="muted small">Haz clic en ella para acariciarla, o en el suelo para que camine hacia allí.</p>
-      </div>
-      <h3 class="sec">Medallas <span class="muted">(${ids.length})</span></h3>
-      <div class="medals" id="medals">${ids.length ? "" : `<p class="muted">Aún no tiene medallas.</p>`}</div>
-      ${mine ? `<h3 class="sec">Seguridad</h3>
-      <div class="card seg">
-        ${justGoogle ? `<p class="ok">Entraste con tu cuenta de Google. Aquí abajo puedes poner una contraseña nueva.</p>` : ""}
-        <div id="gstate"></div>
-        <hr>
-        <form id="pwform" novalidate>
-          <label for="npw">Nueva contraseña</label>
-          <input id="npw" type="password" minlength="6" autocomplete="new-password">
-          <p class="err" id="perr" role="alert"></p>
-          <button class="btn solid" id="pgo" type="submit">Cambiar contraseña</button>
-        </form>
-      </div>` : ""}
-      <h3 class="sec">Récords</h3>
-      <div class="records">${recs.map(([g, v]) => `<div class="card rec"><h4>${esc(g.name)}</h4>${v === null ? `<span class="muted">Sin récord aún</span>` : `<div class="big">${v} <small>${esc(g.unit)}</small></div>`}</div>`).join("")}</div>`;
-    const mw = $("#medals");
-    ids.forEach(id => {
-      const m = MEDALS[id] || { name: String(id), desc: "", img: "" };
-      const el = document.createElement("div"); el.className = "medal"; el.title = m.name + (m.desc ? " — " + m.desc : "");
-      const fb = () => { const f = document.createElement("span"); f.className = "mfb"; f.textContent = "🏅"; return f; };
-      let ic;
-      if (m.img) { ic = document.createElement("img"); ic.alt = ""; ic.src = m.img; ic.onerror = () => ic.replaceWith(fb()); } else ic = fb();
-      const b = document.createElement("b"); b.textContent = m.name;
-      el.append(ic, b); mw.append(el);
-    });
-    const CHAR = "https://minotar.net/skin/char";
-    const srcName = okAv(p.avatar) === headUrl(p.name) ? p.name : "char";
-    const srcs = md && md.skin ? [md.skin, CHAR] : ["https://minotar.net/skin/" + encodeURIComponent(srcName), CHAR];
-    avatarFx = createAvatar($("#acv"), { skinSources: srcs, slim: !!(md && md.slim) });
-    if (mine) {
-      justGoogle = false;
-      const gs = $("#gstate");
-      const drawG = (msg) => {
-        const g = googleInfo();
-        gs.innerHTML = (g
-          ? `<p>Cuenta de Google: <b class="ok">vinculada</b> (${esc(g.email || "")}). Úsala para recuperar tu cuenta si olvidas la contraseña.</p><button class="btn" id="gun" type="button">Desvincular</button>`
-          : `<p class="muted">Vincula tu cuenta de Google (opcional) para poder recuperar tu cuenta si olvidas la contraseña.</p><button class="btn solid" id="gln" type="button">Vincular cuenta de Google</button>`)
-          + `<p class="err" id="gmsg" role="alert">${esc(msg || "")}</p>`;
-        const b = $("#gun") || $("#gln");
-        b.onclick = async () => {
-          b.disabled = true;
-          const r = await (g ? unlinkGoogle() : linkGoogle());
-          if (r === false) { b.disabled = false; return; }
-          drawG(r || "");
-        };
-      };
-      drawG();
-      $("#pwform").onsubmit = async e => {
-        e.preventDefault(); const er = $("#perr"); er.className = "err"; er.textContent = ""; $("#pgo").disabled = true;
-        const r = await changePassword($("#npw").value);
-        $("#pgo").disabled = false;
-        if (r) { er.textContent = r; return; }
-        $("#npw").value = ""; er.className = "err ok"; er.textContent = "Contraseña actualizada.";
-      };
-      const lo = document.createElement("button"); lo.className = "btn"; lo.textContent = "Cerrar sesión"; lo.onclick = () => signOut(auth); box.querySelector(".prof").append(lo);
-      const f = $("#skinform");
-      $("#skinbtn").onclick = () => { f.hidden = !f.hidden; };
-      $("#sprem").onchange = e => { $("#sbox").hidden = e.target.checked; $("#slimrow").hidden = !e.target.checked; };
-      f.onsubmit = async e => {
-        e.preventDefault(); const er = $("#serr"); er.textContent = ""; $("#sgo").disabled = true;
-        const r = await updateSkin($("#sprem").checked, $("#sfile").files[0], $("#sslim").checked);
-        if (r) { er.textContent = r; $("#sgo").disabled = false; return; }
-        renderAuth(); Game.refresh(); renderProfile(p.name);
-      };
-    }
-  } catch (e) { console.warn(e); if (tok === profTok) box.innerHTML = `<p class="muted">No se pudo cargar el perfil.</p>`; }
-}
-
-/* ---------- Ranking del juego ---------- */
-async function renderRank() {
-  const tb = $("#rank");
-  try {
-    const snap = await getDocs(query(collection(db, "scores"), orderBy("score", "desc"), limit(10)));
-    const r = snap.docs.map(d => d.data());
-    tb.innerHTML = r.length
-      ? r.map((x, i) => `<tr><td>${i + 1}</td><td><span class="pl"><img src="${esc(okAv(x.avatar))}" alt=""><a href="${esc(pLink(x.name))}">${esc(x.name)}</a></span></td><td>${Number(x.score) || 0}</td></tr>`).join("")
-      : `<tr><td class="empty">Sé el primero en el ranking.</td></tr>`;
-  } catch (e) { console.warn(e); tb.innerHTML = `<tr><td class="empty">No se pudo cargar el ranking (${esc((e && e.code) || "error")}).</td></tr>`; }
-}
-async function saveScore(score) {
-  const u = me(); if (!u || !score) return;
-  try {
-    const ref = doc(db, "scores", u.uid), snap = await getDoc(ref);
-    if (snap.exists() && snap.data().score >= score) return;
-    await setDoc(ref, { name: u.name, avatar: u.avatar, score });
-    renderRank();
-  } catch (e) { console.warn(e); const t = $("#hint"); if (t) t.textContent = "No se pudo guardar tu puntaje (" + ((e && e.code) || "error") + ")."; }
-}
-
-/* ---------- Minijuego ---------- */
-const Game = (() => {
-  const cv = $("#cv"), c = cv.getContext("2d"), W = 800, GY = 200, S = 36, B = 24, BIOME_AT = 21000, MAXT = 3;
-  const IMG = {}; ["totem", "cactus", "flor", "arena", "arena-roja"].forEach(n => { const i = new Image(); i.src = "img/" + n + ".png"; IMG[n] = i; });
-  const ok = i => i.complete && i.naturalWidth > 0;
-  let raf = 0, last = 0, st = "idle", s, face = new Image();
-  const rnd = (a, b) => a + Math.random() * (b - a);
-  const reset = () => {
-    cv.style.background = "";
-    return { y: GY - S, vy: 0, obs: [], tot: [], pts: [], speed: 5, dist: 0, next: 420, totems: 0, inv: 0, boost: 0, biome: 0, banner: 0,
-      clouds: Array.from({ length: 4 }, () => ({ x: rnd(0, W), y: rnd(20, 90) })),
-      mesas: Array.from({ length: 3 }, (_, i) => ({ x: i * 300 + rnd(0, 120), w: rnd(120, 200), h: rnd(50, 95) })) };
-  };
-  function loadFace() { face = new Image(); face.src = (me() || {}).avatar || DEF; }
-  function burst(x, y, cols, n) { for (let i = 0; i < n; i++) s.pts.push({ x, y, vx: rnd(-4, 4), vy: rnd(-5, 1), l: rnd(25, 50), c: cols[i % cols.length] }); }
-  function jump() {
-    if (st === "idle" || st === "over") { s = reset(); st = "run"; return; }
-    if (s.y >= GY - S) { s.vy = -12.5; burst(80, GY, ["#7a6a40", "#a89a70"], 6); }
-  }
-  const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-  function parts(k) { s.pts.forEach(q => { q.x += q.vx * k; q.y += q.vy * k; q.vy += .25 * k; q.l -= k; }); s.pts = s.pts.filter(q => q.l > 0); }
-  function update(k) {
-    const bi = s.dist / 10 >= BIOME_AT ? 1 : 0;
-    if (bi !== s.biome) { s.biome = bi; s.banner = 170; cv.style.background = "linear-gradient(#3a1606,#000)"; }
-    // velocidad: sube despacio y se detiene en un tope, para que siempre sea cuestión de habilidad
-    s.speed = Math.min(bi ? 11.5 : 10.5, 5 + s.dist / 6000);
-    const v = s.speed * k; s.dist += v;
-    s.vy += .7 * k; s.y = Math.min(GY - S, s.y + s.vy * k); if (s.y >= GY - S) s.vy = 0;
-    s.next -= v;
-    if (s.next <= 0) { // separación mínima = tiempo de salto + margen de reacción: siempre es posible
-      const r = Math.random(), n = r < .45 ? 1 : r < .85 ? 2 : 3, fl = n < 3 && Math.random() < .18;
-      s.obs.push({ x: W + 20, n, h: n * B, fl });
-      if (s.totems < MAXT && !s.tot.length && Math.random() < .05) s.tot.push({ x: W + 20 + rnd(90, 170), y: rnd(100, 130), w: 26, h: 26 });
-      s.next = s.speed * 42 + rnd(60, 300) + (fl ? s.speed * 10 : 0);
-    }
-    s.obs.forEach(o => o.x -= v); s.tot.forEach(t => t.x -= v);
-    s.clouds.forEach(cl => { cl.x -= .4 * k; if (cl.x < -60) { cl.x = W + 20; cl.y = rnd(20, 90); } });
-    s.mesas.forEach(m => { m.x -= 1.2 * k; if (m.x + m.w < 0) { m.x = W + rnd(0, 100); m.w = rnd(120, 200); m.h = rnd(50, 95); } });
-    s.obs = s.obs.filter(o => o.x > -30); s.tot = s.tot.filter(t => t.x > -40);
-    const p = { x: 64, y: s.y + 4, w: S - 8, h: S - 8 };
-    s.tot = s.tot.filter(t => { if (hit(p, t)) { s.totems = Math.min(MAXT, s.totems + 1); burst(t.x + 13, t.y + 13, ["#e8b923", "#2e9e4a", "#fff6c4"], 22); return false; } return true; });
-    if (s.inv > 0) s.inv -= k; if (s.boost > 0) s.boost -= k; if (s.banner > 0) s.banner -= k;
-    for (const o of s.obs) {
-      if (o.fl && hit(p, { x: o.x, y: GY - o.h - 16, w: B, h: 16 })) { // flor: impulso que te saca de ritmo, no mata
-        o.fl = false; s.vy = -17; s.boost = 22; burst(o.x + 12, GY - o.h - 8, ["#d2708a", "#fcb0ad", "#fa8685"], 24); continue;
-      }
-      if (s.inv <= 0 && s.boost <= 0 && hit(p, { x: o.x + 2, y: GY - o.h, w: B - 4, h: o.h })) {
-        if (s.totems > 0) { s.totems--; s.inv = 60; burst(80, s.y + 18, ["#e8b923", "#2e9e4a", "#fff6c4", "#ffffff"], 50); s.obs = s.obs.filter(q => q !== o); }
-        else { st = "over"; burst(80, s.y + 18, ["#f7b41e", "#ff8a3d", "#fff"], 36); saveScore(Math.floor(s.dist / 10)); }
-        break;
-      }
-    }
-    parts(k);
-  }
-  function draw() {
-    c.clearRect(0, 0, W, 240); c.imageSmoothingEnabled = false;
-    if (s.biome) { c.fillStyle = "rgba(190,90,30,.25)"; s.mesas.forEach(m => { c.fillRect(m.x, GY - m.h, m.w, m.h); }); c.fillStyle = "rgba(220,120,50,.4)"; s.mesas.forEach(m => c.fillRect(m.x, GY - m.h, m.w, 4)); }
-    else { c.fillStyle = "rgba(247,180,30,.07)"; s.clouds.forEach(cl => c.fillRect(cl.x, cl.y, 56, 14)); }
-    const fl = IMG[s.biome ? "arena-roja" : "arena"]; c.globalAlpha = .75;
-    for (let x = -(s.dist % 40); x < W; x += 40) { if (ok(fl)) c.drawImage(fl, x, GY, 40, 40); else { c.fillStyle = s.biome ? "#b5541c" : "#d9ca9a"; c.fillRect(x, GY, 40, 40); } }
-    c.globalAlpha = 1;
-    s.obs.forEach(o => {
-      for (let i = 0; i < o.n; i++) { if (ok(IMG.cactus)) c.drawImage(IMG.cactus, o.x, GY - (i + 1) * B, B, B); else { c.fillStyle = "#3f9b2a"; c.fillRect(o.x, GY - (i + 1) * B, B, B); } }
-      if (o.fl && ok(IMG.flor)) c.drawImage(IMG.flor, o.x, GY - o.h - B, B, B);
-    });
-    s.tot.forEach(t => { const y = t.y + Math.sin(s.dist / 15) * 3; if (ok(IMG.totem)) c.drawImage(IMG.totem, t.x, y, 26, 26); else { c.fillStyle = "#e8b923"; c.fillRect(t.x, y, 26, 26); } });
-    if (st !== "over" && (s.inv <= 0 || Math.floor(s.inv / 4) % 2)) c.drawImage(face, 60, s.y, S, S);
-    if (st === "over") { c.globalAlpha = .4; c.drawImage(face, 60, s.y, S, S); c.globalAlpha = 1; }
-    s.pts.forEach(q => { c.fillStyle = q.c; c.globalAlpha = Math.min(1, q.l / 20); c.fillRect(q.x, q.y, 4, 4); }); c.globalAlpha = 1;
-    c.fillStyle = "#f5ecd6"; c.font = "700 16px 'Noto Sans', sans-serif"; c.textAlign = "right"; c.fillText(String(Math.floor(s.dist / 10)).padStart(5, "0"), W - 16, 28);
-    for (let i = 0; i < s.totems; i++) if (ok(IMG.totem)) c.drawImage(IMG.totem, 14 + i * 26, 10, 22, 22);
-    c.textAlign = "center"; c.fillStyle = "#f7b41e";
-    if (s.banner > 0) { c.globalAlpha = Math.min(1, s.banner / 40); c.font = "800 22px 'Noto Sans', sans-serif"; c.fillText("Desierto meseta", W / 2, 70); c.globalAlpha = 1; }
-    c.font = "700 16px 'Noto Sans', sans-serif";
-    if (st === "idle") c.fillText("Pulsa espacio o toca para empezar", W / 2, 120);
-    if (st === "over") { c.font = "800 24px 'Noto Sans', sans-serif"; c.fillText("Fin del juego", W / 2, 100); c.font = "500 15px 'Noto Sans', sans-serif"; c.fillStyle = "#a89a70"; c.fillText(me() ? "Pulsa para reintentar" : "Inicia sesión para guardar tu puntaje", W / 2, 126); }
-  }
-  function loop(t) {
-    const k = Math.min(2.5, (t - last) / 16.67 || 1); last = t;
-    if (st === "run") update(k); else parts(k);
-    draw(); raf = requestAnimationFrame(loop);
-  }
-  const key = e => { if (!$("#v-juego").hidden && ["Space", "ArrowUp"].includes(e.code) && modal.hidden) { e.preventDefault(); jump(); } };
-  addEventListener("keydown", key);
-  cv.addEventListener("pointerdown", e => { e.preventDefault(); jump(); });
-  return {
-    show() { s = s || reset(); loadFace(); cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); },
-    stop() { cancelAnimationFrame(raf); },
-    refresh() { loadFace(); }
-  };
-})();
-
-/* ---------- Arranque ---------- */
-$("#yr").textContent = new Date().getFullYear();
-route();
-onAuthStateChanged(auth, async user => {
-  if (signing) return; // signUp/logIn manejan su propio perfil
-  await loadProfile(user);
-  ready = true; renderAuth(); Game.refresh();
-  refreshView();
-});
-})();
