@@ -203,7 +203,7 @@ async function loadProfile(user) {
     if (s.exists()) { const d = s.data(); profile = { uid: user.uid, name: d.name, avatar: okAv(d.avatar), medalIds: Array.isArray(d.medalIds) ? d.medalIds : [] }; }
   } catch (e) { console.warn(e); }
 }
-async function signUp(name, pw, prem, file, email) {
+async function signUp(name, pw, prem, file) {
   let avatar = DEF, skinData = null, slim = false;
   if (prem) avatar = headUrl(name);
   else if (file) { try { const r = await readSkin(file); avatar = r.head; skinData = r.skin; slim = r.slim; } catch (e) { return skinErr(e); } }
@@ -214,8 +214,6 @@ async function signUp(name, pw, prem, file, email) {
     try { await setDoc(doc(db, "players", cred.user.uid), { name, avatar, medalIds: [], createdAt: serverTimestamp() }); }
     catch (e) { try { await deleteUser(cred.user); } catch (_) {} return fe(e); }
     try { await setDoc(doc(db, "avatars", cred.user.uid), { skin: skinData, slim }); } catch (e) { console.warn(e); }
-    // El correo va en una colección privada (no en "players", que es pública). Si las reglas aún no la permiten, no rompe el registro.
-    if (email) { try { await setDoc(doc(db, "contacts", cred.user.uid), { email, createdAt: serverTimestamp() }); } catch (e) { console.warn(e); } }
     profile = { uid: cred.user.uid, name, avatar, medalIds: [] };
     return null;
   } finally { signing = false; }
@@ -320,10 +318,8 @@ form.onsubmit = async e => {
   const name = $("#un").value.trim(), pw = $("#pw").value;
   if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return void (err.textContent = "Tu nombre de Minecraft tiene de 3 a 16 caracteres: letras, números o guion bajo.");
   if (pw.length < 6) return void (err.textContent = "La contraseña debe tener al menos 6 caracteres.");
-  const email = mode === "signup" ? $("#em").value.trim() : "";
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return void (err.textContent = "Ese correo no parece válido. Corrígelo o déjalo en blanco.");
   $("#go").disabled = true;
-  const r = mode === "login" ? await logIn(name, pw) : await signUp(name, pw, $("#prem").checked, $("#skin").files[0], email);
+  const r = mode === "login" ? await logIn(name, pw) : await signUp(name, pw, $("#prem").checked, $("#skin").files[0]);
   $("#go").disabled = false;
   if (r) return void (err.textContent = r);
   renderAuth(); Game.refresh(); refreshView();
