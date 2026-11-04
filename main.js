@@ -47,7 +47,7 @@ const GAMES = [
 const medalCount = d => Array.isArray(d.medalIds) ? d.medalIds.length : (Number(d.medals) || 0);
 const pLink = n => "#perfil/" + encodeURIComponent(n);
 
-let profile = null, ready = false, signing = false;
+let profile = null, ready = false, signing = false, gameSkinSrc = null;
 let avatarFx = null;
 const stopAvatar = () => { if (avatarFx) { avatarFx.destroy(); avatarFx = null; } };
 const me = () => profile;
@@ -371,6 +371,7 @@ async function renderProfile(name) {
     }));
     if (tok !== profTok) return;
     const md = await mdoc;
+    gameSkinSrc = md && md.skin ? md.skin : null;
     if (tok !== profTok) return;
     stopAvatar();
     const ids = Array.isArray(p.medalIds) ? p.medalIds : [];
@@ -393,11 +394,7 @@ async function renderProfile(name) {
       <h3 class="sec">Avatar</h3>
       <div class="card avatarbox">
         <canvas id="acv" role="img" aria-label="Avatar de ${esc(p.name)}"></canvas>
-        <div class="avatar-tools" aria-label="Controles del avatar">
-          <span class="muted small">Animación:</span><button class="btn mini" data-anim="idle" type="button">Idle</button><button class="btn mini" data-anim="walk" type="button">Caminar</button><button class="btn mini" data-anim="jump" type="button">Saltar</button><button class="btn mini" data-anim="wave" type="button">Celebrar</button>
-          <label class="muted small" for="avatar-size">PNG:</label><select id="avatar-size"><option>128</option><option>256</option><option selected>512</option><option>1024</option></select><select id="avatar-bg"><option value="transparent">Transparente</option><option value="#263744">Fondo azul</option><option value="#111923">Fondo oscuro</option></select><button class="btn solid mini" id="avatar-download" type="button">Descargar</button>
-        </div>
-        <p class="muted small">Haz clic en el avatar para celebrar o en el suelo para que camine.</p>
+        <div class="avatar-tools" aria-label="Descargar avatar"><label class="muted small" for="avatar-size">PNG:</label><select id="avatar-size"><option>128</option><option>256</option><option selected>512</option><option>1024</option></select><select id="avatar-bg"><option value="transparent">Transparente</option><option value="#263744">Fondo azul</option><option value="#111923">Fondo oscuro</option></select><button class="btn solid mini" id="avatar-download" type="button">Descargar avatar</button></div>
       </div>
       <h3 class="sec">Medallas <span class="muted">(${ids.length})</span></h3>
       <div class="medals" id="medals">${ids.length ? "" : `<p class="muted">Aún no tiene medallas.</p>`}</div>
@@ -429,7 +426,6 @@ async function renderProfile(name) {
     const srcName = okAv(p.avatar) === headUrl(p.name) ? p.name : "char";
     const srcs = md && md.skin ? [md.skin, CHAR] : ["https://minotar.net/skin/" + encodeURIComponent(srcName), CHAR];
     avatarFx = createAvatar($("#acv"), { skinSources: srcs, slim: !!(md && md.slim) });
-    $$(".avatar-tools [data-anim]").forEach(b => b.onclick = () => avatarFx.play(b.dataset.anim));
     $("#avatar-download").onclick = () => avatarFx.download(Number($("#avatar-size").value), $("#avatar-bg").value);
     if (mine) {
       justGoogle = false;
@@ -500,7 +496,7 @@ const Game = (() => {
   const cv = $("#cv"), c = cv.getContext("2d"), W = 800, GY = 200, S = 36, B = 24, BIOME_AT = 21000, MAXT = 3;
   const IMG = {}; ["totem", "cactus", "flor", "arena", "arena-roja"].forEach(n => { const i = new Image(); i.src = "img/" + n + ".png"; IMG[n] = i; });
   const ok = i => i.complete && i.naturalWidth > 0;
-  let raf = 0, last = 0, st = "idle", s, face = new Image();
+  let raf = 0, last = 0, st = "idle", s, face = new Image(), fullSkin = new Image();
   const rnd = (a, b) => a + Math.random() * (b - a);
   const reset = () => {
     cv.style.background = "";
@@ -508,7 +504,15 @@ const Game = (() => {
       clouds: Array.from({ length: 4 }, () => ({ x: rnd(0, W), y: rnd(20, 90) })),
       mesas: Array.from({ length: 3 }, (_, i) => ({ x: i * 300 + rnd(0, 120), w: rnd(120, 200), h: rnd(50, 95) })) };
   };
-  function loadFace() { face = new Image(); face.src = (me() || {}).avatar || DEF; }
+  function loadFace() { face = new Image(); face.src = (me() || {}).avatar || DEF; if (gameSkinSrc) { fullSkin = new Image(); fullSkin.src = gameSkinSrc; } }
+  function drawRunnerAvatar(x, y) {
+    if (!fullSkin.complete || !fullSkin.naturalWidth) { c.drawImage(face, x, y, S, S); return; }
+    c.save(); c.translate(x + S, y); c.scale(1, 1);
+    c.imageSmoothingEnabled = false;
+    c.drawImage(fullSkin, 8, 8, 8, 8, -S / 2, 0, S, S);
+    c.drawImage(fullSkin, 20, 20, 8, 12, -S / 2 + 4, S - 5, S - 8, 16);
+    c.restore();
+  }
   function burst(x, y, cols, n) { for (let i = 0; i < n; i++) s.pts.push({ x, y, vx: rnd(-4, 4), vy: rnd(-5, 1), l: rnd(25, 50), c: cols[i % cols.length] }); }
   function jump() {
     if (st === "idle" || st === "over") { s = reset(); st = "run"; return; }
@@ -561,8 +565,8 @@ const Game = (() => {
       if (o.fl && ok(IMG.flor)) c.drawImage(IMG.flor, o.x, GY - o.h - B, B, B);
     });
     s.tot.forEach(t => { const y = t.y + Math.sin(s.dist / 15) * 3; if (ok(IMG.totem)) c.drawImage(IMG.totem, t.x, y, 26, 26); else { c.fillStyle = "#e8b923"; c.fillRect(t.x, y, 26, 26); } });
-    if (st !== "over" && (s.inv <= 0 || Math.floor(s.inv / 4) % 2)) c.drawImage(face, 60, s.y, S, S);
-    if (st === "over") { c.globalAlpha = .4; c.drawImage(face, 60, s.y, S, S); c.globalAlpha = 1; }
+    if (st !== "over" && (s.inv <= 0 || Math.floor(s.inv / 4) % 2)) drawRunnerAvatar(60, s.y);
+    if (st === "over") { c.globalAlpha = .4; drawRunnerAvatar(60, s.y); c.globalAlpha = 1; }
     s.pts.forEach(q => { c.fillStyle = q.c; c.globalAlpha = Math.min(1, q.l / 20); c.fillRect(q.x, q.y, 4, 4); }); c.globalAlpha = 1;
     c.fillStyle = "#f5ecd6"; c.font = "700 16px 'Noto Sans', sans-serif"; c.textAlign = "right"; c.fillText(String(Math.floor(s.dist / 10)).padStart(5, "0"), W - 16, 28);
     for (let i = 0; i < s.totems; i++) if (ok(IMG.totem)) c.drawImage(IMG.totem, 14 + i * 26, 10, 22, 22);

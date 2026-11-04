@@ -44,37 +44,63 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
     c.drawImage(img, sx * k, sy * k, sw * k, sh * k, -ax * S, -ay * S, sw * S, sh * S);
     c.restore();
   }
+  function layerFace(sx, sy, px, py, w, h, kk) {
+    const k = img.width / 64, temp = document.createElement("canvas"); temp.width = temp.height = 8;
+    const tc = temp.getContext("2d"); tc.imageSmoothingEnabled = false;
+    tc.drawImage(img, sx * k, sy * k, 8 * k, 8 * k, 0, 0, 8, 8);
+    // La skin ya trae alpha real: no alteramos colores blancos válidos.
+    c.drawImage(temp, px, py, w, h);
+  }
+  function compactFace(sx, sy, px, py, w, h) {
+    const k = img.width / 64, src = document.createElement("canvas"), out = document.createElement("canvas");
+    src.width = out.width = src.height = out.height = 8;
+    const sc = src.getContext("2d"), oc = out.getContext("2d"); sc.imageSmoothingEnabled = oc.imageSmoothingEnabled = false;
+    sc.drawImage(img, sx * k, sy * k, 8 * k, 8 * k, 0, 0, 8, 8);
+    // Conserva los bloques de 1 píxel y acerca únicamente el bloque derecho.
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) oc.drawImage(src, x, y, 1, 1, x >= 5 ? x - 1 : x, y, 1, 1);
+    c.drawImage(out, px, py, w, h);
+  }
 
   function drawChar(po) {
     const awR = slim ? 2 : 3; // brazo derecho: plano/estrecho, queda detrás
     const awL = slim ? 3 : 5; // brazo izquierdo: volumen del costado visible
     const legacy = img.height < img.width; // 64×32 = formato antiguo
+    const headOnly = false; // cabeza aprobada; activamos el cuerpo Drops compacto
+    const strips = (sx, sy, sw, x, y, dw, n, mirror = false) => {
+      const k = img.width / 64; c.save();
+      if (mirror) { c.translate(Math.round((x + dw) * S), 0); c.scale(-1, 1); x = 0; }
+      for (let i = 0; i < n; i++) {
+        const row = sy + Math.round(i * 11 / Math.max(1, n - 1));
+        c.drawImage(img, sx * k, row * k, sw * k, k, Math.round(x * S), Math.round((y + i) * S), Math.round(dw * S), S);
+      }
+      c.restore();
+    };
     const bust = false;
     c.save();
     c.translate(Math.round(st.x), FEET + Math.round(po.y * S));
     c.rotate(po.lean);
     c.scale(B, B); // cuerpo pequeño; la cabeza se agranda aparte
 
+    if (!headOnly) {
     // Piernas cortas y planas: se leen como piezas de papel, no como un modelo 3D.
-    part(4, 20, 4, 7, -2, -7, 2, 0, 0, po.lR);
-    if (!legacy) part(4, 36, 4, 7, -2, -7, 2, 0, 0, po.lR);
-    if (legacy) part(4, 20, 4, 7, 2, -7, 2, 0, 0, po.lL, true);
-    else { part(20, 52, 4, 7, 2, -7, 2, 0, 0, po.lL); part(4, 52, 4, 7, 2, -7, 2, 0, 0, po.lL); }
+    strips(4, legacy ? 20 : 52, 4, -2, -7, 4, 3);
+    strips(legacy ? 4 : 20, legacy ? 20 : 52, 4, 2, -7, 4, 3, true);
 
     c.translate(0, Math.round(po.bob * S)); // el torso respira / rebota; las piernas no
     // torso
-    part(20, 20, 8, 12, 0, -14, 4, 0);
-    if (!legacy) part(20, 36, 8, 12, 0, -14, 4, 0);
+    strips(20, 20, 8, -4, -14, 8, 4);
+    if (!legacy) strips(20, 36, 8, -4, -14, 8, 4);
     // brazos (pivote en el hombro)
     const shoulder = -13;
     const armR = () => {
-      part(44, 20, awR, 12, -4 - awR / 2, shoulder, awR / 2, 2, po.aR, po.sR);
-      if (!legacy) part(44, 36, awR, 12, -4 - awR / 2, shoulder, awR / 2, 2, po.aR, po.sR);
+      strips(44, 20, awR, -7, shoulder, 3, 5);
+      if (!legacy) strips(44, 36, awR, -7, shoulder, 3, 5);
     };
     const raised = po.aR > 1.2; // si el brazo está levantado (saludo), se dibuja delante de la cabeza grande
     if (!raised) armR();
-    if (legacy) part(44, 20, awL, 12, 4 + awL / 2, shoulder, awL / 2, 2, po.aL, po.sL, true);
-    else { part(36, 52, awL, 12, 4 + awL / 2, shoulder, awL / 2, 2, po.aL, po.sL); part(52, 52, awL, 12, 4 + awL / 2, shoulder, awL / 2, 2, po.aL, po.sL); }
+    if (legacy) strips(44, 20, awL, 4, shoulder, 5, 3, true);
+    else { strips(36, 52, awL, 4, shoulder, 5, 5); strips(52, 52, awL, 4, shoulder, 5, 5); }
+    }
     // Cabeza "Drops" simplificada: menos superficie frontal y un costado corto
     // para que los rasgos queden juntos y la silueta se lea más tierna.
     const hk = HK / B; // la cabeza se dibuja a escala HK en total
@@ -83,10 +109,12 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
     const ik = img.width / 64;
     // El lateral pasa de 4 a 3 píxeles lógicos; la cara de 8 a 7. Al
     // reagrupar con vecino más cercano los ojos quedan visualmente próximos.
-    c.drawImage(img, 16 * ik, 8 * ik, 8 * ik, 8 * ik, 3.5 * S, -7 * S, 3 * S, 7 * S);
-    if (!legacy) c.drawImage(img, 48 * ik, 8 * ik, 8 * ik, 8 * ik, 3.5 * S, -7 * S, 3 * S, 7 * S);
-    c.drawImage(img, 8 * ik, 8 * ik, 8 * ik, 8 * ik, -3.5 * S, -7 * S, 7 * S, 7 * S);
-    if (!legacy) c.drawImage(img, 40 * ik, 8 * ik, 8 * ik, 8 * ik, -3.5 * S, -7 * S, 7 * S, 7 * S);
+    c.drawImage(img, 16 * ik, 8 * ik, 8 * ik, 8 * ik, 4 * S, -8 * S, 4 * S, 8 * S);
+    if (!legacy) layerFace(48, 8, 4 * S, -8 * S, 4 * S, 8 * S, hk);
+    // Proyección Drops de referencia: frente 8×8 + costado continuo de 4×8.
+    // No se escala horizontalmente la cara; los ojos conservan sus cubos UV.
+    compactFace(8, 8, -4 * S, -8 * S, 8 * S, 8 * S);
+    if (!legacy) compactFace(40, 8, -4 * S, -8 * S, 8 * S, 8 * S);
     c.restore();
     if (raised) armR();
     // sombrero (gancho para la tienda): origen en el cuello, a la escala de la cabeza
@@ -108,6 +136,9 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
       po.bob = -Math.abs(a) * 0.9;
       po.aR += a * 0.14; po.aL += a * 0.14;
       po.lean = st.dir * 0.05; po.head = -st.dir * 0.04;
+    } else if (st.mode === "dance") {
+      const d = Math.sin(time * 7); po.bob = -Math.abs(d) * 1.2; po.lean = d * 0.06;
+      po.aR = d * 0.35; po.aL = -d * 0.35; po.head = d * 0.08;
     } else if (st.mode === "wave") {
       const p = st.t / 1.8, k = Math.min(1, st.t / 0.25, (1.8 - st.t) / 0.25);
       const e = Math.max(0, k);
@@ -127,7 +158,7 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
   function pick() {
     const r = Math.random();
     if (r < 0.5) walkTo(100 + Math.random() * (W - 200));
-    else if (r < 0.7) go("wave");
+    else if (r < 0.7) go("dance");
     else if (r < 0.85) go("jump");
     else go("idle");
   }
@@ -138,7 +169,8 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
     if (st.mode === "walk") {
       const dx = st.tx - st.x, step = 42 * dt; st.dir = Math.sign(dx);
       if (Math.abs(dx) <= step) { st.x = st.tx; go("idle"); } else { st.x += st.dir * step; st.phase += dt * 9; }
-    } else if (st.mode === "wave" && st.t > 1.8) go("idle");
+    } else if (st.mode === "dance" && st.t > 1.8) go("idle");
+    else if (st.mode === "wave" && st.t > 1.8) go("idle");
     else if (st.mode === "jump" && st.t > 0.7) go("idle");
     else if (st.mode === "idle" && st.t > st.next) pick();
   }
@@ -147,13 +179,13 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
   function drawRoom() {
     // Habitación isométrica: planos con ángulos duros y una cuadrícula de bloques.
     c.fillStyle = "#111923"; c.fillRect(0, 0, W, H);
-    c.fillStyle = "#263744"; c.fillRect(0, 0, W, WALL);
+    c.fillStyle = "#d5d9d8"; c.fillRect(0, 0, W, WALL);
     c.fillStyle = "#314855"; c.fillRect(0, 0, W, 5);
     // Dos paredes y un suelo en perspectiva isométrica, sin túnel ni fuga central.
-    c.fillStyle = "#20313a"; c.beginPath(); c.moveTo(0, 0); c.lineTo(W * .18, WALL); c.lineTo(0, WALL); c.closePath(); c.fill();
-    c.fillStyle = "#19262f"; c.beginPath(); c.moveTo(W, 0); c.lineTo(W * .82, WALL); c.lineTo(W, WALL); c.closePath(); c.fill();
+    c.fillStyle = "#c5cbca"; c.beginPath(); c.moveTo(0, 0); c.lineTo(W * .18, WALL); c.lineTo(0, WALL); c.closePath(); c.fill();
+    c.fillStyle = "#b9c0bf"; c.beginPath(); c.moveTo(W, 0); c.lineTo(W * .82, WALL); c.lineTo(W, WALL); c.closePath(); c.fill();
     c.fillStyle = "#18252d"; c.fillRect(0, WALL - 7, W, 7);
-    c.fillStyle = "#3e5254"; c.beginPath(); c.moveTo(0, WALL); c.lineTo(W, WALL); c.lineTo(W, H); c.lineTo(0, H); c.fill();
+    c.fillStyle = "#8b5a32"; c.beginPath(); c.moveTo(0, WALL); c.lineTo(W, WALL); c.lineTo(W, H); c.lineTo(0, H); c.fill();
     c.strokeStyle = "rgba(188,207,176,.09)"; c.lineWidth = 2;
     for (let y = WALL + 12; y < H + 30; y += 22) { c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke(); }
     for (let x = -W; x < W * 2; x += 42) { c.beginPath(); c.moveTo(W / 2 + (x - W / 2) * .35, WALL); c.lineTo(x, H); c.stroke(); }
@@ -188,10 +220,10 @@ export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
     const r = canvas.getBoundingClientRect();
     const x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
     const onHer = Math.abs(x - st.x) < 4 * HK * S && y > FEET - CH * S && y < FEET + 8;
-    if (onHer) { // caricia: salta o saluda, y salen corazones
-      go(Math.random() < 0.5 ? "jump" : "wave");
+    if (onHer) { // caricia: salta y salen corazones; el clic nunca dirige el movimiento
+      go("jump");
       for (let i = 0; i < 3; i++) hearts.push({ x: st.x - 12 + i * 14 + Math.random() * 6, y: FEET - CH * S - 36 - i * 12, l: 1.4 });
-    } else walkTo(x);
+    }
   }
   canvas.addEventListener("pointerdown", onPointer);
 
