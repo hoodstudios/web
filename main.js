@@ -287,7 +287,20 @@ function setMode(m) {
   $("#su").hidden = m !== "signup"; $("#glogin").hidden = m !== "login"; $("#go").textContent = m === "login" ? "Iniciar sesión" : "Crear cuenta";
   $("#pw").autocomplete = m === "login" ? "current-password" : "new-password"; $("#err").textContent = "";
 }
-const openM = m => { last = document.activeElement; form.reset(); setMode(m); $("#skinbox").hidden = true; modal.hidden = false; $("#un").focus(); };
+const openM = m => {
+  last = document.activeElement; form.reset(); form.hidden = false; $(".tabs").hidden = false; $("#gstep").hidden = true; $("#gerr").textContent = "";
+  setMode(m); $("#skinbox").hidden = true; modal.hidden = false; $("#un").focus();
+};
+/* Paso opcional tras registrarse: vincular Google (el clic nuevo evita que el navegador bloquee la ventana emergente) */
+function showStep() { form.hidden = true; $(".tabs").hidden = true; $("#glogin").hidden = true; $("#gstep").hidden = false; $("#glink").focus(); }
+$("#glink").onclick = async () => {
+  const b = $("#glink"), e = $("#gerr"); e.textContent = ""; b.disabled = true;
+  const r = await linkGoogle(); b.disabled = false;
+  if (r === false) return;
+  if (r) return void (e.textContent = r);
+  closeM(); refreshView();
+};
+$("#gskip").onclick = () => closeM();
 const closeM = () => { modal.hidden = true; last && last.focus && last.focus(); };
 $$(".tabs button").forEach(t => t.onclick = () => setMode(t.dataset.m));
 $("#prem").onchange = e => $("#skinbox").hidden = e.target.checked;
@@ -313,7 +326,8 @@ form.onsubmit = async e => {
   const r = mode === "login" ? await logIn(name, pw) : await signUp(name, pw, $("#prem").checked, $("#skin").files[0], email);
   $("#go").disabled = false;
   if (r) return void (err.textContent = r);
-  closeM(); renderAuth(); Game.refresh(); refreshView();
+  renderAuth(); Game.refresh(); refreshView();
+  if (mode === "signup") showStep(); else closeM();
 };
 
 /* ---------- Jugadores ---------- */
