@@ -1,212 +1,357 @@
-/* avatar.js — Avatar animado generado a partir de la skin de Minecraft.
- * Estilo "Minecraft Live": cabezota y cuerpo pequeño.
- * No usa sprites: recorta cabeza, torso, brazos y piernas de la textura de la skin
- * y las mueve en un canvas 2D (como un muñeco de papel).
- *
- * Uso: const a = createAvatar(canvas, { skinSources: [url1, url2...], slim: false });
- *      a.destroy();   // al salir de la página del perfil
- * Ganchos para la futura tienda: a.setHat(fn), a.addFurniture(fn)
+/* avatar.js — Avatar animado 2.5D isométrico al estilo Minecraft Live.
+ * Renderiza un personaje con proporciones exageradas (cabezota) y una habitación isométrica.
+ * Extrae las caras frontal, superior y lateral de la skin para dar volumen 3D real.
+ * Soporta animaciones básicas, capas de superposición (overlay) y exportación a PNG.
  */
-const W = 480, H = 300;      // tamaño interno del canvas
-const S = 5;                 // píxeles de canvas por cada píxel de skin
-const WALL = 235, FEET = 262; // fin de la pared y altura de los pies
-// Proporciones (estilo Minecraft Live). B*S y HK*S son enteros para que los píxeles queden nítidos.
-const B = 0.8;               // escala del cuerpo (torso, brazos, piernas)
-const HK = 2.4;              // escala de la cabeza
-const CH = 24 * B + 8 * HK;  // altura total en unidades de skin
+const W = 480, H = 300;      // Tamaño interno del canvas
+const S = 4.5;               // Píxeles de canvas por píxel de skin (escala general)
+const B = 0.8;               // Escala del cuerpo
+const HK = 2.2;              // Escala de la cabeza
 
 const loadImg = src => new Promise((ok, no) => {
   const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error("img")); i.src = src;
 });
 async function loadFirst(list) {
-  for (const s of list) { try { return await loadImg(s); } catch (e) { /* prueba la siguiente */ } }
+  for (const s of list) { try { return await loadImg(s); } catch (e) {} }
   return null;
 }
-const HEART = ["0110110", "1111111", "1111111", "0111110", "0011100", "0001000"];
 
 export function createAvatar(canvas, { skinSources = [], slim = false } = {}) {
   canvas.width = W; canvas.height = H;
   const c = canvas.getContext("2d"); c.imageSmoothingEnabled = false;
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   let img = null, status = "loading", raf = 0, last = 0, time = 0, alive = true;
+  const st = { mode: "idle", t: 0, dir: 0 };
   const items = { hat: null, furniture: [] };
-  const hearts = [];
-  const st = { mode: "idle", t: 0, x: W / 2, tx: W / 2, dir: 0, phase: 0, next: 1.2 };
 
-  /* ---------- Dibujo de una parte de la skin ---------- */
-  // (sx,sy,sw,sh) = recorte en unidades de skin 64×64; (px,py) = posición del pivote en unidades;
-  // (ax,ay) = pivote dentro de la parte; rot = giro; ky = estiramiento vertical; flip = espejo
-  function part(sx, sy, sw, sh, px, py, ax, ay, rot = 0, ky = 1, flip = false, kk = 1) {
-    const k = img.width / 64;
-    c.save();
-    c.translate(Math.round(px * S), Math.round(py * S));
-    c.rotate(rot); c.scale(flip ? -kk : kk, ky * kk);
-    c.drawImage(img, sx * k, sy * k, sw * k, sh * k, -ax * S, -ay * S, sw * S, sh * S);
-    c.restore();
-  }
+  /* ---------- Renderizador de Bloques Isométricos ---------- */
+  function drawBlock(ctx, px, py, w, h, d, tex, scale) {
+    if (!tex) return;
+    ctx.save();
+    ctx.translate(px * S, py * S);
+    ctx.scale(scale * S, scale * S); // 1 unidad = 1 píxel de skin
 
-  function drawChar(po) {
-    const aw = slim ? 3 : 4, legacy = img.height < img.width; // 64×32 = formato antiguo
-    c.save();
-    c.translate(Math.round(st.x), FEET + Math.round(po.y * S));
-    c.rotate(po.lean);
-    c.scale(B, B); // cuerpo pequeño; la cabeza se agranda aparte
-
-    // piernas (el personaje de frente: su pierna derecha queda a la izquierda del espectador)
-    part(4, 20, 4, 12, -2, -12, 2, 0, 0, po.lR);
-    if (!legacy) part(4, 36, 4, 12, -2, -12, 2, 0, 0, po.lR);
-    if (legacy) part(4, 20, 4, 12, 2, -12, 2, 0, 0, po.lL, true);
-    else { part(20, 52, 4, 12, 2, -12, 2, 0, 0, po.lL); part(4, 52, 4, 12, 2, -12, 2, 0, 0, po.lL); }
-
-    c.translate(0, Math.round(po.bob * S)); // el torso respira / rebota; las piernas no
-    // torso
-    part(20, 20, 8, 12, 0, -24, 4, 0);
-    if (!legacy) part(20, 36, 8, 12, 0, -24, 4, 0);
-    // brazos (pivote en el hombro)
-    const shoulder = -22;
-    const armR = () => {
-      part(44, 20, aw, 12, -4 - aw / 2, shoulder, aw / 2, 2, po.aR, po.sR);
-      if (!legacy) part(44, 36, aw, 12, -4 - aw / 2, shoulder, aw / 2, 2, po.aR, po.sR);
-    };
-    const raised = po.aR > 1.2; // si el brazo está levantado (saludo), se dibuja delante de la cabeza grande
-    if (!raised) armR();
-    if (legacy) part(44, 20, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL, true);
-    else { part(36, 52, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL); part(52, 52, aw, 12, 4 + aw / 2, shoulder, aw / 2, 2, po.aL, po.sL); }
-    // cabeza (pivote en el cuello)
-    const hk = HK / B; // la cabeza se dibuja a escala HK en total
-    part(8, 8, 8, 8, 0, -24, 4, 8, po.head, 1, false, hk);
-    if (!legacy) part(40, 8, 8, 8, 0, -24, 4, 8, po.head, 1, false, hk);
-    if (raised) armR();
-    // sombrero (gancho para la tienda): origen en el cuello, a la escala de la cabeza
-    if (items.hat) { c.save(); c.translate(0, -24 * S); c.rotate(po.head); c.scale(hk, hk); items.hat(c, S, time); c.restore(); }
-    c.restore();
-  }
-
-  /* ---------- Poses por estado ---------- */
-  function pose() {
-    const po = { y: 0, bob: 0, lean: 0, head: 0, aR: 0.05, aL: -0.05, sR: 1, sL: 1, lR: 1, lL: 1 };
-    const breathe = Math.sin(time * 2.2);
-    if (st.mode === "idle") {
-      po.bob = breathe * 0.35; po.head = Math.sin(time * 1.1) * 0.03;
-      po.aR += breathe * 0.02; po.aL -= breathe * 0.02;
-    } else if (st.mode === "walk") {
-      const a = Math.sin(st.phase);
-      po.lR = 1 - 0.28 * Math.max(0, a); po.lL = 1 - 0.28 * Math.max(0, -a); // la pierna que avanza se "acorta" (perspectiva)
-      po.sR = 1 - 0.14 * Math.max(0, -a); po.sL = 1 - 0.14 * Math.max(0, a);
-      po.bob = -Math.abs(a) * 0.9;
-      po.aR += a * 0.14; po.aL += a * 0.14;
-      po.lean = st.dir * 0.05; po.head = -st.dir * 0.04;
-    } else if (st.mode === "wave") {
-      const p = st.t / 1.8, k = Math.min(1, st.t / 0.25, (1.8 - st.t) / 0.25);
-      const e = Math.max(0, k);
-      po.aR = 0.05 + 2.4 * e + Math.sin(time * 12) * 0.22 * e;
-      po.head = 0.08 * e; po.bob = breathe * 0.3;
-    } else if (st.mode === "jump") {
-      const p = Math.min(1, st.t / 0.7), s = Math.sin(Math.PI * p);
-      po.y = -s * 9; po.lR = po.lL = 1 - 0.25 * s; po.aR = 0.05 + 0.7 * s; po.aL = -0.05 - 0.7 * s;
-      if (p > 0.85) po.bob = 0.7; // pequeño "aplastón" al caer
+    // Cara Izquierda (Fondo)
+    if (tex.left) {
+      ctx.save();
+      ctx.translate(-w / 2, -h / 2);
+      ctx.transform(1, 0.5, 0, 1, 0, 0);
+      ctx.drawImage(img, tex.left[0], tex.left[1], tex.left[2], tex.left[3], 0, 0, d, h);
+      ctx.restore();
     }
-    return po;
+
+    // Cara Superior
+    if (tex.top) {
+      ctx.save();
+      ctx.translate(-w / 2, -h / 2);
+      ctx.transform(1, -0.5, 1, 0.5, 0, 0);
+      ctx.drawImage(img, tex.top[0], tex.top[1], tex.top[2], tex.top[3], 0, 0, w, d);
+      ctx.restore();
+    }
+
+    // Cara Frontal
+    if (tex.front) {
+      ctx.save();
+      ctx.translate(-w / 2, -h / 2);
+      ctx.drawImage(img, tex.front[0], tex.front[1], tex.front[2], tex.front[3], 0, 0, w, h);
+      ctx.restore();
+    }
+
+    ctx.restore();
   }
 
-  /* ---------- Comportamiento ---------- */
-  function go(m) { st.mode = m; st.t = 0; if (m === "idle") st.dir = 0, st.next = 1.5 + Math.random() * 2.5; }
-  function walkTo(x) { st.tx = Math.max(80, Math.min(W - 80, x)); if (Math.abs(st.tx - st.x) > 6) go("walk"); }
-  function pick() {
-    const r = Math.random();
-    if (r < 0.5) walkTo(100 + Math.random() * (W - 200));
-    else if (r < 0.7) go("wave");
-    else if (r < 0.85) go("jump");
-    else go("idle");
-  }
-  function update(dt) {
-    time += dt; st.t += dt;
-    for (const h of hearts) { h.y -= 34 * dt; h.l -= dt; }
-    while (hearts.length && hearts[0].l <= 0) hearts.shift();
-    if (st.mode === "walk") {
-      const dx = st.tx - st.x, step = 42 * dt; st.dir = Math.sign(dx);
-      if (Math.abs(dx) <= step) { st.x = st.tx; go("idle"); } else { st.x += st.dir * step; st.phase += dt * 9; }
-    } else if (st.mode === "wave" && st.t > 1.8) go("idle");
-    else if (st.mode === "jump" && st.t > 0.7) go("idle");
-    else if (st.mode === "idle" && st.t > st.next) pick();
+  /* ---------- Extracción de Coordenadas UV ---------- */
+  const aw = slim ? 3 : 4; // Ancho del brazo (slim = 3px, clásico = 4px)
+
+  const uv = {
+    head: { top: [8, 0, 8, 8], front: [8, 8, 8, 8], left: [16, 8, 8, 8] },
+    headOverlay: { top: [40, 0, 8, 8], front: [40, 8, 8, 8], left: [48, 8, 8, 8] },
+    body: { top: [20, 16, 8, 4], front: [20, 20, 8, 12], left: [28, 20, 4, 12] },
+    bodyOverlay: { top: [20, 32, 8, 4], front: [20, 36, 8, 12], left: [28, 36, 4, 12] },
+    arm: { top: [44, 16, aw, 4], front: [44, 20, aw, 12], left: [44 + aw, 20, 4, 12] },
+    armOverlay: { top: [44, 32, aw, 4], front: [44, 36, aw, 12], left: [44 + aw, 36, 4, 12] },
+    leg: { top: [4, 16, 4, 4], front: [4, 20, 4, 12], left: [8, 20, 4, 12] },
+    legOverlay: { top: [4, 32, 4, 4], front: [4, 36, 4, 12], left: [8, 36, 4, 12] }
+  };
+
+  /* ---------- Dibujo del Personaje ---------- */
+  function drawChar(pose) {
+    // El centro de coordenadas (0,0) es el centro del torso
+    const baseY = -14; 
+    const yOff = pose.y || 0;
+
+    c.save();
+    c.translate(W / 2, H / 2 + yOff * S);
+    
+    // Animación base (respiración/caminar)
+    const bob = pose.bob || 0;
+    c.translate(0, bob * S);
+
+    // 1. Pierna Izquierda (Fondo)
+    c.save();
+    c.translate(-2, -8);
+    c.rotate(pose.lL * 0.5);
+    c.translate(2, 8);
+    drawBlock(c, -2, -8, 4, 12, 4, uv.leg, B);
+    if (img.height === 64) drawBlock(c, -2, -8, 4.1, 12.1, 4.1, uv.legOverlay, B);
+    c.restore();
+
+    // 2. Brazo Izquierdo (Fondo)
+    c.save();
+    c.translate(-6, -20);
+    c.rotate(pose.aL * 0.5);
+    c.translate(6, 20);
+    drawBlock(c, -6, -20, aw, 12, 4, uv.arm, B);
+    if (img.height === 64) drawBlock(c, -6, -20, aw + 0.1, 12.1, 4.1, uv.armOverlay, B);
+    c.restore();
+
+    // 3. Pierna Derecha (Frente)
+    c.save();
+    c.translate(2, -8);
+    c.rotate(pose.lR * 0.5);
+    c.translate(-2, 8);
+    drawBlock(c, 2, -8, 4, 12, 4, uv.leg, B);
+    if (img.height === 64) drawBlock(c, 2, -8, 4.1, 12.1, 4.1, uv.legOverlay, B);
+    c.restore();
+
+    // 4. Torso
+    c.save();
+    c.rotate(pose.lean || 0);
+    c.translate(0, -14);
+    c.rotate(pose.spin || 0);
+    c.translate(0, 14);
+    drawBlock(c, 0, -14, 8, 12, 4, uv.body, B);
+    if (img.height === 64) drawBlock(c, 0, -14, 8.1, 12.1, 4.1, uv.bodyOverlay, B);
+    c.restore();
+
+    // 5. Brazo Derecho (Frente)
+    c.save();
+    c.translate(6, -20);
+    c.rotate(pose.aR * 0.5);
+    c.translate(-6, 20);
+    drawBlock(c, 6, -20, aw, 12, 4, uv.arm, B);
+    if (img.height === 64) drawBlock(c, 6, -20, aw + 0.1, 12.1, 4.1, uv.armOverlay, B);
+    c.restore();
+
+    // 6. Cabeza
+    c.save();
+    c.translate(0, -24); // Pivote en el cuello
+    c.rotate(pose.head || 0);
+    drawBlock(c, 0, -24 - 4 * HK, 8, 8, 8, uv.head, HK);
+    if (img.height === 64) drawBlock(c, 0, -24 - 4 * HK, 8.1, 8.1, 8.1, uv.headOverlay, HK);
+    
+    // Gancho para sombreros personalizados
+    if (items.hat) {
+      c.save();
+      c.translate(0, -24 - 8 * HK);
+      c.scale(HK, HK);
+      items.hat(c, S, time);
+      c.restore();
+    }
+    c.restore();
+
+    c.restore();
   }
 
-  /* ---------- Escenario ---------- */
+  /* ---------- Poses y Animaciones ---------- */
+  function getPose() {
+    const p = { y: 0, bob: 0, lean: 0, head: 0, aR: 0.05, aL: -0.05, lR: 0, lL: 0 };
+    const breathe = Math.sin(time * 2.5);
+
+    if (st.mode === "idle") {
+      p.bob = breathe * 0.3;
+      p.head = Math.sin(time * 1.2) * 0.03;
+      p.aR += breathe * 0.03;
+      p.aL -= breathe * 0.03;
+    } else if (st.mode === "walk") {
+      const a = Math.sin(time * 10);
+      p.lR = a;
+      p.lL = -a;
+      p.aR = -a;
+      p.aL = a;
+      p.bob = Math.abs(a) * 0.5;
+      p.head = -0.05 * Math.sign(a);
+    } else if (st.mode === "jump") {
+      const t = Math.min(1, st.t / 0.8);
+      const s = Math.sin(Math.PI * t);
+      p.y = -s * 15;
+      p.lR = 0.3 * s;
+      p.lL = 0.3 * s;
+      p.aR = 0.7 * s;
+      p.aL = -0.7 * s;
+    } else if (st.mode === "wave") {
+      const t = Math.min(1, st.t / 1.5);
+      const e = Math.max(0, Math.min(1, st.t / 0.2, (1.5 - st.t) / 0.2));
+      p.aR = 0.05 + 2.5 * e + Math.sin(time * 15) * 0.2 * e;
+      p.head = 0.1 * e;
+      p.bob = breathe * 0.2;
+    }
+    return p;
+  }
+
+  /* ---------- Habitación Isométrica ---------- */
   function drawRoom() {
-    // Habitación isométrica: planos con ángulos duros y una cuadrícula de bloques.
-    c.fillStyle = "#111923"; c.fillRect(0, 0, W, H);
-    c.fillStyle = "#263744"; c.fillRect(0, 0, W, WALL);
-    c.fillStyle = "#314855";
-    for (let x = -W; x < W * 2; x += 32) { c.beginPath(); c.moveTo(W / 2, WALL - 2); c.lineTo(x, 0); c.lineTo(x + 2, 0); c.lineTo(W / 2 + 2, WALL - 2); c.fill(); }
-    c.fillStyle = "#18252d"; c.fillRect(0, WALL - 7, W, 7);
-    c.fillStyle = "#3e5254"; c.beginPath(); c.moveTo(0, WALL); c.lineTo(W, WALL); c.lineTo(W, H); c.lineTo(0, H); c.fill();
-    c.strokeStyle = "rgba(188,207,176,.16)"; c.lineWidth = 2;
-    for (let y = WALL + 10; y < H + 30; y += 22) { c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke(); }
-    for (let x = -W; x < W * 2; x += 40) { c.beginPath(); c.moveTo(W / 2 + (x - W / 2) * .38, WALL); c.lineTo(x, H); c.stroke(); }
-    c.fillStyle = "rgba(0,0,0,.24)"; c.fillRect(0, WALL - 2, W, 2);
-    // iluminación cálida tipo diorama
-    const g = c.createRadialGradient(W * .52, WALL + 18, 8, W * .52, WALL + 18, 180); g.addColorStop(0, "rgba(255,216,117,.20)"); g.addColorStop(1, "rgba(255,216,117,0)"); c.fillStyle = g; c.fillRect(0, WALL, W, H - WALL);
-    for (const f of items.furniture) f(c, { S, time, W, H, floor: FEET });
+    // Fondo base oscuro
+    c.fillStyle = "#0a0f14";
+    c.fillRect(0, 0, W, H);
+
+    c.save();
+    c.translate(W / 2, H / 2 + 40);
+
+    // Piso (Diamante isométrico)
+    c.save();
+    c.transform(1, 0.5, -1, 0.5, 0, 0);
+    c.fillStyle = "#2a3b4c";
+    c.fillRect(-150, -150, 300, 300);
+    // Cuadrícula del piso
+    c.strokeStyle = "rgba(255,255,255,0.05)";
+    c.lineWidth = 2;
+    for (let i = -150; i <= 150; i += 30) {
+      c.beginPath(); c.moveTo(i, -150); c.lineTo(i, 150); c.stroke();
+      c.beginPath(); c.moveTo(-150, i); c.lineTo(150, i); c.stroke();
+    }
+    c.restore();
+
+    // Pared Izquierda
+    c.save();
+    c.transform(1, 0.5, 0, 1, 0, 0);
+    c.fillStyle = "#1e2833";
+    c.fillRect(-150, -100, 150, 100);
+    c.restore();
+
+    // Pared Derecha
+    c.save();
+    c.transform(1, -0.5, 0, 1, 0, 0);
+    c.fillStyle = "#17202a";
+    c.fillRect(0, -100, 150, 100);
+    c.restore();
+
+    // Iluminación ambiental
+    const g = c.createRadialGradient(0, -20, 10, 0, -20, 200);
+    g.addColorStop(0, "rgba(247,180,30,0.15)");
+    g.addColorStop(1, "rgba(247,180,30,0)");
+    c.fillStyle = g;
+    c.fillRect(-150, -150, 300, 300);
+
+    c.restore();
+
+    // Muebles (Gancho para la tienda)
+    for (const f of items.furniture) f(c, { S, time, W, H });
   }
-  function drawHeart(x, y, a) {
-    c.globalAlpha = Math.max(0, Math.min(1, a)); c.fillStyle = "#ff5a7a";
-    HEART.forEach((row, j) => [...row].forEach((v, i) => { if (v === "1") c.fillRect(Math.round(x + i * 3), Math.round(y + j * 3), 3, 3); }));
-    c.globalAlpha = 1;
-  }
-  function msg(t) {
-    c.fillStyle = "#a89a70"; c.font = "500 16px Barlow, sans-serif"; c.textAlign = "center"; c.fillText(t, W / 2, FEET - 40);
-  }
+
+  /* ---------- Loop de Renderizado ---------- */
   function render() {
-    c.clearRect(0, 0, W, H); c.imageSmoothingEnabled = false;
+    c.clearRect(0, 0, W, H);
+    c.imageSmoothingEnabled = false;
+    
     drawRoom();
-    if (!img) { msg(status === "fail" ? "No se pudo cargar la skin" : "Cargando avatar…"); return; }
-    const po = pose();
-    const lift = Math.min(1, -po.y / 9);
-    c.fillStyle = "rgba(0,0,0,.45)"; c.beginPath(); c.ellipse(Math.round(st.x), FEET + 2, 4 * HK * S * 0.9 * (1 - lift * 0.4), 7 * (1 - lift * 0.4), 0, 0, Math.PI * 2); c.fill();
-    drawChar(po);
-    for (const h of hearts) drawHeart(h.x, h.y, h.l / 0.6);
+
+    if (!img) {
+      c.fillStyle = "#a89a70";
+      c.font = "500 16px 'Noto Sans', sans-serif";
+      c.textAlign = "center";
+      c.fillText(status === "fail" ? "No se pudo cargar la skin" : "Cargando avatar...", W / 2, H / 2);
+      return;
+    }
+
+    const pose = getPose();
+    drawChar(pose);
   }
 
-  /* ---------- Interacción ---------- */
-  function onPointer(e) {
-    if (!img) return;
-    e.preventDefault();
-    const r = canvas.getBoundingClientRect();
-    const x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
-    const onHer = Math.abs(x - st.x) < 4 * HK * S && y > FEET - CH * S && y < FEET + 8;
-    if (onHer) { // caricia: salta o saluda, y salen corazones
-      go(Math.random() < 0.5 ? "jump" : "wave");
-      for (let i = 0; i < 3; i++) hearts.push({ x: st.x - 12 + i * 14 + Math.random() * 6, y: FEET - CH * S - 36 - i * 12, l: 1.4 });
-    } else walkTo(x);
-  }
-  canvas.addEventListener("pointerdown", onPointer);
+  function update(dt) {
+    time += dt;
+    st.t += dt;
 
-  /* ---------- Arranque ---------- */
+    if (st.mode === "walk" && st.t > 2) go("idle");
+    else if (st.mode === "wave" && st.t > 1.5) go("idle");
+    else if (st.mode === "jump" && st.t > 0.8) go("idle");
+    else if (st.mode === "idle" && Math.random() < 0.005) {
+      // Cambios aleatorios sutiles de animación
+      if (Math.random() < 0.3) go("wave");
+      else if (Math.random() < 0.3) go("jump");
+    }
+  }
+
+  function go(m) {
+    st.mode = m;
+    st.t = 0;
+  }
+
   function frame(t) {
     if (!alive) return;
-    const dt = Math.min(0.05, (t - last) / 1000 || 0); last = t;
-    update(dt); render(); raf = requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (t - last) / 1000 || 0);
+    last = t;
+    update(dt);
+    render();
+    raf = requestAnimationFrame(frame);
   }
+
+  /* ---------- Exportación a PNG ---------- */
+  function download(size = 512, background = "transparent") {
+    const out = document.createElement("canvas");
+    out.width = out.height = size;
+    const oc = out.getContext("2d");
+    oc.imageSmoothingEnabled = false;
+
+    if (background !== "transparent") {
+      oc.fillStyle = background;
+      oc.fillRect(0, 0, size, size);
+    }
+
+    if (!img) return;
+
+    // Configurar un canvas temporal para renderizar el personaje aislado
+    const temp = document.createElement("canvas");
+    temp.width = W;
+    temp.height = H;
+    const tc = temp.getContext("2d");
+    tc.imageSmoothingEnabled = false;
+
+    // Guardar contexto original
+    const oldCtx = c;
+    // @ts-ignore - Redirigir el contexto temporalmente para dibujar el personaje
+    c = tc; 
+    c.clearRect(0, 0, W, H);
+    drawChar(getPose());
+    c = oldCtx; // Restaurar
+
+    // Dibujar en el canvas de exportación centrado y escalado
+    const scale = size / 140; // Escala para que quepa bien
+    const dx = (size - W * scale) / 2;
+    const dy = (size - H * scale) / 2;
+    
+    oc.drawImage(temp, dx, dy, W * scale, H * scale);
+
+    const a = document.createElement("a");
+    a.download = `hood-avatar-${size}.png`;
+    a.href = out.toDataURL("image/png");
+    a.click();
+  }
+
+  /* ---------- Inicialización ---------- */
   loadFirst(skinSources).then(i => {
     if (!alive) return;
-    img = i; status = i ? "ok" : "fail";
+    img = i;
+    status = i ? "ok" : "fail";
     if (reduce) render();
   });
-  if (reduce) render(); else raf = requestAnimationFrame(frame);
+
+  if (reduce) {
+    render();
+  } else {
+    raf = requestAnimationFrame(frame);
+  }
 
   return {
-    destroy() { alive = false; cancelAnimationFrame(raf); canvas.removeEventListener("pointerdown", onPointer); },
+    destroy() {
+      alive = false;
+      cancelAnimationFrame(raf);
+    },
     setHat(fn) { items.hat = fn; },
     addFurniture(fn) { items.furniture.push(fn); },
-    play(mode) { if (["idle", "walk", "jump", "wave"].includes(mode)) go(mode); },
-    // Exporta el canvas ya rasterizado; al ampliar se fuerza NEAREST NEIGHBOR.
-    download(size = 512, background = "transparent") {
-      const out = document.createElement("canvas"); out.width = out.height = size;
-      const oc = out.getContext("2d"); oc.imageSmoothingEnabled = false;
-      if (background !== "transparent") { oc.fillStyle = background; oc.fillRect(0, 0, size, size); }
-      const scale = Math.min(size / W, size / H);
-      oc.drawImage(canvas, Math.floor((size - W * scale) / 2), Math.floor((size - H * scale) / 2), Math.floor(W * scale), Math.floor(H * scale));
-      const a = document.createElement("a"); a.download = `hood-avatar-${size}.png`; a.href = out.toDataURL("image/png"); a.click();
-    }
+    play(mode) {
+      if (["idle", "walk", "jump", "wave"].includes(mode)) go(mode);
+    },
+    download
   };
 }
