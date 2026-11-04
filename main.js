@@ -64,6 +64,7 @@ function route() {
   if (cur === "jugadores") renderPlayers();
   if (cur === "perfil") renderProfile(arg);
   if (cur === "juego") { renderRank(); Game.show(); } else Game.stop();
+  $("#dc").hidden = cur !== "inicio"; dispatchEvent(new Event("dcsync"));
   window.scrollTo(0, 0); if (cur === "inicio") fitSub();
 }
 addEventListener("hashchange", route);
@@ -74,7 +75,7 @@ addEventListener("hashchange", route);
  *  2) si no existe, se le pregunta a la API de GitHub por el contenido de la carpeta (GitHub Pages). */
 const GAL_DIR = "galeria", GAL_MS = 5000, GAL_EXT = /\.(png|jpe?g|webp|gif|avif)$/i;
 let GALERIA = [], gi = 0, gtimer = 0, gimgs = [];
-const gal = $("#gal"), gdots = $("#gdots");
+const gal = $("#gal");
 async function galList() {
   const sort = l => l.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   // 1) GitHub Pages: pregunta a GitHub qué hay en la carpeta (siempre actualizado)
@@ -101,7 +102,6 @@ function gshow(n) {
   const old = gimgs[gi]; gi = (n + gimgs.length) % gimgs.length;
   if (old && old !== gimgs[gi]) { old.classList.remove("on"); old.classList.add("prev"); setTimeout(() => old.classList.remove("prev"), 1200); }
   const cur = gimgs[gi]; cur.classList.remove("prev"); void cur.offsetWidth; cur.classList.add("on");
-  [...gdots.children].forEach((d, k) => d.classList.toggle("on", k === gi));
 }
 let glocked = false;
 const glock = $("#glock");
@@ -111,10 +111,20 @@ $("#gprev").onclick = () => { gshow(gi - 1); gauto(); }; $("#gnext").onclick = (
 galList().then(async list => {
   const loaded = await Promise.all(list.map(f => new Promise(ok => { const i = new Image(), src = GAL_DIR + "/" + encodeURIComponent(f); i.alt = ""; i.onload = () => ok(i); i.onerror = () => ok(null); i.src = src; })));
   gimgs = loaded.filter(Boolean); gimgs.forEach(i => gal.append(i));
-  gdots.innerHTML = gimgs.map(() => "<i></i>").join("");
-  const multi = gimgs.length > 1; $("#gprev").hidden = $("#gnext").hidden = gdots.hidden = glock.hidden = !multi;
+  const multi = gimgs.length > 1; $("#gprev").hidden = $("#gnext").hidden = glock.hidden = !multi;
   gshow(0); gauto();
 });
+/* Splash rotativo (estilo Minecraft): una frase al azar de Splashes.txt cada vez que se abre/recarga la página.
+ * En Splashes.txt: un splash por línea; las líneas vacías y las que empiezan con # se ignoran. */
+(async () => {
+  const el = $("#splash");
+  try {
+    const r = await fetch("Splashes.txt", { cache: "no-cache" }); if (!r.ok) return;
+    const list = (await r.text()).split(/\r?\n/).map(s => s.trim()).filter(s => s && !s.startsWith("#"));
+    if (!list.length) return;
+    el.textContent = list[Math.floor(Math.random() * list.length)]; el.hidden = false;
+  } catch (e) {}
+})();
 /* Alinea "Hub.Of.Original.Development" al ancho de HOOD/STUDIO */
 function fitSub() {
   const h = $(".hl h1"), p = $(".hl .sub"); if (!h || !p || $("#v-inicio").hidden) return;
@@ -130,14 +140,16 @@ addEventListener("resize", fitSub); if (document.fonts) document.fonts.ready.the
   let init = null; try { init = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
   const place = () => init && typeof init.fx === "number" ? put(init.fx * innerWidth, init.fy * innerHeight) : put(16, innerHeight - el.offsetHeight - 112);
   place(); if (document.fonts) document.fonts.ready.then(place);
-  addEventListener("resize", () => { init = { fx: el.offsetLeft / innerWidth, fy: el.offsetTop / innerHeight }; place(); });
+  addEventListener("resize", () => { if (el.hidden) return; init = { fx: el.offsetLeft / innerWidth, fy: el.offsetTop / innerHeight }; place(); });
+  addEventListener("dcsync", place);
   let sx, sy, ox, oy, id = null;
-  el.addEventListener("pointerdown", e => { if (e.button) return; id = e.pointerId; sx = e.clientX; sy = e.clientY; ox = el.offsetLeft; oy = el.offsetTop; moved = false; el.setPointerCapture(id); });
+  el.addEventListener("pointerdown", e => { if (e.button) return; id = e.pointerId; sx = e.clientX; sy = e.clientY; ox = el.offsetLeft; oy = el.offsetTop; moved = false; });
   el.addEventListener("pointermove", e => {
     if (e.pointerId !== id) return;
     const dx = e.clientX - sx, dy = e.clientY - sy;
     if (!moved && Math.hypot(dx, dy) < 6) return;
-    moved = true; el.classList.add("drag"); put(ox + dx, oy + dy);
+    if (!moved) { moved = true; try { el.setPointerCapture(id); } catch (_) {} el.classList.add("drag"); }
+    put(ox + dx, oy + dy);
   });
   const end = e => { if (e.pointerId !== id) return; id = null; el.classList.remove("drag"); if (moved) { init = { fx: el.offsetLeft / innerWidth, fy: el.offsetTop / innerHeight }; save(); } };
   el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
@@ -191,7 +203,7 @@ async function loadProfile(user) {
     if (s.exists()) { const d = s.data(); profile = { uid: user.uid, name: d.name, avatar: okAv(d.avatar), medalIds: Array.isArray(d.medalIds) ? d.medalIds : [] }; }
   } catch (e) { console.warn(e); }
 }
-async function signUp(name, pw, prem, file) {
+async function signUp(name, pw, prem, file, email) {
   let avatar = DEF, skinData = null, slim = false;
   if (prem) avatar = headUrl(name);
   else if (file) { try { const r = await readSkin(file); avatar = r.head; skinData = r.skin; slim = r.slim; } catch (e) { return skinErr(e); } }
@@ -202,6 +214,8 @@ async function signUp(name, pw, prem, file) {
     try { await setDoc(doc(db, "players", cred.user.uid), { name, avatar, medalIds: [], createdAt: serverTimestamp() }); }
     catch (e) { try { await deleteUser(cred.user); } catch (_) {} return fe(e); }
     try { await setDoc(doc(db, "avatars", cred.user.uid), { skin: skinData, slim }); } catch (e) { console.warn(e); }
+    // El correo va en una colección privada (no en "players", que es pública). Si las reglas aún no la permiten, no rompe el registro.
+    if (email) { try { await setDoc(doc(db, "contacts", cred.user.uid), { email, createdAt: serverTimestamp() }); } catch (e) { console.warn(e); } }
     profile = { uid: cred.user.uid, name, avatar, medalIds: [] };
     return null;
   } finally { signing = false; }
@@ -293,8 +307,10 @@ form.onsubmit = async e => {
   const name = $("#un").value.trim(), pw = $("#pw").value;
   if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) return void (err.textContent = "Tu nombre de Minecraft tiene de 3 a 16 caracteres: letras, números o guion bajo.");
   if (pw.length < 6) return void (err.textContent = "La contraseña debe tener al menos 6 caracteres.");
+  const email = mode === "signup" ? $("#em").value.trim() : "";
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return void (err.textContent = "Ese correo no parece válido. Corrígelo o déjalo en blanco.");
   $("#go").disabled = true;
-  const r = mode === "login" ? await logIn(name, pw) : await signUp(name, pw, $("#prem").checked, $("#skin").files[0]);
+  const r = mode === "login" ? await logIn(name, pw) : await signUp(name, pw, $("#prem").checked, $("#skin").files[0], email);
   $("#go").disabled = false;
   if (r) return void (err.textContent = r);
   closeM(); renderAuth(); Game.refresh(); refreshView();
