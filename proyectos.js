@@ -2,7 +2,7 @@
  * Para añadir o editar proyectos, solo toca la lista PROYECTOS de abajo (las portadas van en la carpeta "proyectos/"). */
 const PROYECTOS = [
   { id: "hardhood", name: "HardHood", status: "Proyecto activo", img: "proyectos/hardhood.jpg",
-    acc: "#ff5a52", wbg: "#1a0407",
+    acc: "#ff8a1f", wbg: "#1a0d03",
     tabs: [
       { t: "Información", h: "HardHood", p: ["Nuestro proyecto activo.", "Aquí irá toda la información de HardHood."] },
       { t: "Crafteos", h: "Crafteos", p: ["Aquí aparecerán los crafteos del proyecto."] },
