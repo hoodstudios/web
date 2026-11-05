@@ -304,12 +304,12 @@ export function createAvatar(canvas, { skinSources = [], slim = false, name = "a
   });
   raf = requestAnimationFrame(frame);
 
-  /* Descarga solo el avatar (PNG transparente, sin fondo ni sombra). */
+  /* Descarga el avatar tal cual se ve por defecto en el generador (cuerpo completo, degradado dorado). */
   function download() {
     if (!img) return;
     try {
       const cv = renderAvatar(img, { size: 512, style: "drop", depth: 50, arms: slim ? "slim" : "auto", hat: true, flip: false, fill: 80,
-        shadow: false, bg: "none", c1: "#f7b41e", c2: "#000000", radius: 0 });
+        shadow: true, bg: "grad", c1: "#f7b41e", c2: "#000000", radius: 0 });
       cv.toBlob(b => {
         if (!b) return;
         const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = name + "-avatar.png"; a.click();

@@ -16,9 +16,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;700;800&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-<link rel="stylesheet" href="proyectos.css">
-<link rel="stylesheet" href="calendario.css">
-<link rel="stylesheet" href="comunidad.css">
 </head>
 <body>
 <header class="top">
@@ -27,14 +24,12 @@
     <a href="#inicio" data-v="inicio">Inicio</a>
     <a href="#proyectos" data-v="proyectos">Proyectos</a>
     <a href="#calendario" data-v="calendario">Calendario</a>
-    <a href="#juego" data-v="comunidad">Comunidad</a>
+    <a href="#jugadores" data-v="comunidad">Comunidad</a>
     <a href="#creditos" data-v="creditos">Créditos</a>
   </nav>
   <div class="auth" id="auth"></div>
 </header>
 
-<div class="ar-bgs" id="ar-bgs" aria-hidden="true"></div>
-<nav class="subnav" id="subnav" aria-label="Comunidad" hidden><a href="#juego" aria-label="Arcade" title="Arcade"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12a4 4 0 0 1 3.8 5.2l-1 3.6a2.4 2.4 0 0 1-4 1L15 16H9l-1.8 1.8a2.4 2.4 0 0 1-4-1l-1-3.6A4 4 0 0 1 6 8z"/><path d="M8 10.5v3M6.5 12h3"/><circle cx="15.8" cy="11" r=".7"/><circle cx="18" cy="13" r=".7"/></svg></a><a href="#jugadores" aria-label="Jugadores" title="Jugadores"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21v-6h5v6M8 21V9h8v12M16 21v-9h5v9"/><path d="M12 3.5l.9 1.8 2 .3-1.4 1.4.3 2-1.8-.9-1.8.9.3-2-1.4-1.4 2-.3z" stroke-width="1.4"/></svg></a><a href="#mercado" aria-label="Mercado" title="Mercado"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M5 12v8h14v-8M10 20v-5h4v5"/></svg></a><i class="sn-pill" aria-hidden="true"></i></nav>
 <main>
   <section class="view" id="v-inicio">
     <div class="hero">
@@ -53,7 +48,7 @@
           <button class="btn round" id="gnext" aria-label="Siguiente">›</button>
         </div>
         <p class="splash" id="splash" hidden></p>
-        <a class="btn proj" href="#proyectos/hardhood"><img src="hardhood-cataclysm.png" alt=""><span>Proyecto activo<b>HardHood</b></span></a>
+        <a class="btn proj" href="#proyectos"><img src="hardhood-cataclysm.png" alt=""><span>Proyecto activo<b>HardHood</b></span></a>
       </div>
     </div>
 
@@ -68,59 +63,14 @@
     </div>
   </section>
 
-  <section class="view" id="v-proyectos" hidden aria-label="Proyectos">
-    <h2 class="sr">Proyectos</h2>
-    <div class="pj-bgs" id="pj-bgs" aria-hidden="true"></div>
-    <div class="pj-stage" id="pj-stage" tabindex="0" role="group" aria-roledescription="carrusel" aria-label="Proyectos. Usa las flechas del teclado o arrastra para cambiar."></div>
-    <button class="btn round pj-arrow prev" id="pj-prev" type="button" aria-label="Proyecto anterior">‹</button>
-    <button class="btn round pj-arrow next" id="pj-next" type="button" aria-label="Proyecto siguiente">›</button>
-    <div class="dots pj-dots" id="pj-dots"></div>
-    <div class="pj-modal" id="pj-modal" hidden></div>
-  </section>
-  <section class="view" id="v-calendario" hidden aria-label="Calendario">
-    <h2 class="sr">Calendario</h2>
-    <div class="cal-stage">
-      <div class="cal-wrap" id="cal-wrap">
-        <aside class="cal-side l" id="cal-left" tabindex="0" aria-label="Horario para el próximo evento">
-          <span class="tab" aria-hidden="true">Evento próximo</span>
-          <div class="in" id="cal-left-in"></div>
-        </aside>
-        <aside class="cal-side r" id="cal-right" tabindex="0" aria-label="Proyecto próximo o actual">
-          <span class="tab" aria-hidden="true">Proyecto</span>
-          <div class="in" id="cal-right-in"></div>
-        </aside>
-        <div class="cal-glow" aria-hidden="true"></div>
-        <div class="cal" role="group" aria-label="Calendario de eventos">
-          <div class="cal-head">
-            <button class="btn round" id="cal-prev" type="button" aria-label="Mes anterior">‹</button>
-            <button class="cal-title" id="cal-title" type="button" title="Volver al mes actual"><span class="cal-month" id="cal-month"></span></button>
-            <button class="btn round" id="cal-next" type="button" aria-label="Mes siguiente">›</button>
-          </div>
-          <button class="cal-today" id="cal-today" type="button" title="Volver al mes actual"></button>
-          <div class="cal-week" aria-hidden="true"><span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span></div>
-          <div class="cal-grid" id="cal-grid"></div>
-        </div>
-        <div class="cal-tip" id="cal-tip" aria-live="polite"></div>
-      </div>
-    </div>
-    <div class="cal-ed-host" id="cal-ed" hidden></div>
-  </section>
+  <section class="view" id="v-proyectos" hidden><h2>Proyectos</h2><p class="muted">Próximamente</p></section>
+  <section class="view" id="v-calendario" hidden><h2>Calendario</h2><p class="muted">Próximamente</p></section>
 
   <section class="view" id="v-jugadores" hidden>
-    <div class="plwrap">
-      <div class="plhead">
-        <h2>Jugadores</h2>
-        <div class="flt" id="flt">
-          <button class="flt-btn" id="flt-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg>
-            <span id="flt-label">Medallas</span>
-            <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-          </button>
-          <div class="flt-menu" id="flt-menu" role="listbox" aria-label="Ordenar jugadores"></div>
-        </div>
-      </div>
-      <div class="plist" id="players" aria-live="polite"></div>
-    </div>
+    <div class="subnav"><a href="#jugadores" class="on">Jugadores</a><a href="#juego">Arcade</a><a href="#mercado">Mercado</a></div>
+    <h2>Jugadores</h2>
+    <p class="muted">Ordenados por medallas.</p>
+    <div class="card tablewrap"><table><thead><tr><th>#</th><th>Jugador</th><th>Medallas</th></tr></thead><tbody id="players"></tbody></table></div>
   </section>
 
   <section class="view" id="v-perfil" hidden>
@@ -129,40 +79,25 @@
   </section>
 
   <section class="view" id="v-juego" hidden>
-    <div class="arcade">
-      <div class="ar-main" id="ar-main">
-        <div class="wc" id="wc" aria-label="Mundos">
-          <div class="wc-stage" id="wc-stage" tabindex="0" role="listbox" aria-label="Elige un mundo"></div>
-        </div>
-        <div class="ar-title">
-          <h2 id="ar-name">Desert Rush</h2>
-        </div>
-        <p class="ar-tip" id="ar-tip">Haz clic en la isla para jugar</p>
-        <div class="wc-dots" id="wc-dots"></div>
+    <div class="subnav"><a href="#jugadores">Jugadores</a><a href="#juego" class="on">Arcade</a><a href="#mercado">Mercado</a></div>
+    <h2>Arcade</h2>
+    <div class="game">
+      <div class="card">
+        <canvas id="cv" width="800" height="240" tabindex="0" aria-label="Minijuego: salta los cactus"></canvas>
+        <p class="muted small" id="hint" hidden></p>
       </div>
-
-      <aside class="rankcard" aria-label="Ranking">
-        <h3 class="rk-head">Ranking</h3>
-        <div class="rk-scroll" id="rank"></div>
-        <div class="rk-me" id="rk-me"></div>
-      </aside>
+      <div class="card rankcard"><h3>Ranking</h3><table class="rank"><tbody id="rank"></tbody></table></div>
     </div>
   </section>
 
   <section class="view" id="v-mercado" hidden>
+    <div class="subnav"><a href="#jugadores">Jugadores</a><a href="#juego">Arcade</a><a href="#mercado" class="on">Mercado</a></div>
     <h2>Mercado</h2>
     <p class="muted">Próximamente</p>
   </section>
 
   <section class="view" id="v-creditos" hidden><h2>Créditos</h2><p class="muted">Próximamente</p></section>
 </main>
-
-<div class="gamecard" id="gamecard" aria-hidden="true">
-  <div class="gc-bg" id="gc-bg"></div>
-  <button class="gc-close" id="gc-close" type="button" aria-label="Salir del juego">✕</button>
-  <canvas id="cv" width="800" height="380" tabindex="0" aria-label="Minijuego: salta los cactus"></canvas>
-  <p class="muted small" id="hint">Espacio, flecha arriba o toque para saltar. Recoge el tótem para sobrevivir a un golpe. Esc para salir.</p>
-</div>
 
 <footer class="foot">
   <span>© <span id="yr"></span> HOOD STUDIO</span>
@@ -203,8 +138,5 @@
   </div>
 </div>
 <script type="module" src="main.js"></script>
-<script type="module" src="proyectos.js"></script>
-<script type="module" src="calendario.js"></script>
-<script type="module" src="navliquid.js"></script>
 </body>
 </html>
