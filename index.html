@@ -16,6 +16,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;700;800&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="proyectos.css">
 </head>
 <body>
 <header class="top">
@@ -63,7 +64,15 @@
     </div>
   </section>
 
-  <section class="view" id="v-proyectos" hidden><h2>Proyectos</h2><p class="muted">Próximamente</p></section>
+  <section class="view" id="v-proyectos" hidden aria-label="Proyectos">
+    <h2 class="sr">Proyectos</h2>
+    <div class="pj-bgs" id="pj-bgs" aria-hidden="true"></div>
+    <div class="pj-stage" id="pj-stage" tabindex="0" role="group" aria-roledescription="carrusel" aria-label="Proyectos. Usa las flechas del teclado o arrastra para cambiar."></div>
+    <button class="btn round pj-arrow prev" id="pj-prev" type="button" aria-label="Proyecto anterior">‹</button>
+    <button class="btn round pj-arrow next" id="pj-next" type="button" aria-label="Proyecto siguiente">›</button>
+    <div class="dots pj-dots" id="pj-dots"></div>
+    <div class="pj-modal" id="pj-modal" hidden></div>
+  </section>
   <section class="view" id="v-calendario" hidden><h2>Calendario</h2><p class="muted">Próximamente</p></section>
 
   <section class="view" id="v-jugadores" hidden>
@@ -138,5 +147,6 @@
   </div>
 </div>
 <script type="module" src="main.js"></script>
+<script type="module" src="proyectos.js"></script>
 </body>
 </html>
