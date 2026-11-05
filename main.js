@@ -958,7 +958,7 @@ const Game = (() => {
     }
     else if (kind === "husk") { s.obs.push({ t: "husk", x, w: 18, h: 36, dv: sp * .85 + 1 }); extra = sp * 12; }   // dash al aparecer
     else if (kind === "camel") { s.obs.push({ t: "camel", x, w: 48, h: 36 }); }
-    else if (kind === "parched") { s.obs.push({ t: "parched", x, w: 18, h: 36 }); s.arrows.push({ x: x - 8, y: GY - 24, dv: sp * .9 + 1 }); extra = sp * 14; }
+    else if (kind === "parched") { s.obs.push({ t: "parched", x, w: 18, h: 36 }); s.arrows.push({ x: x - 8, y: GY - 24, dv: sp * .25 + .4 }); extra = sp * 14; }
     else if (kind === "pit") { const gw = Math.round(70 + sp * 8); s.gaps.push({ x, w: gw, lava: s.biome >= CAVE }); extra = gw + sp * 8; }
     else if (kind === "bat") { s.obs.push({ t: "bat", x, w: 27, h: 15, y: GY - 125, ph: rnd(0, 6), dv: 1.5 + sp * .08 }); extra = sp * 10; }
     if (s.totems < MAXT && !s.tot.length && Math.random() < .06) s.tot.push({ x: x + rnd(90, 170), y: GY - rnd(60, 95), w: 26, h: 26 });
@@ -1121,9 +1121,18 @@ const Game = (() => {
   });
   addEventListener("keyup", e => { if (UP.includes(e.code)) release(); else if (DOWN.includes(e.code) && s) s.fast = false; });
   const gcEl = $("#gamecard");                               // se puede tocar en cualquier punto de la pantalla: mantener = salto alto, deslizar hacia abajo = caer rápido
-  gcEl.addEventListener("pointerdown", e => { if (e.target.closest(".gc-close")) return; e.preventDefault(); try { gcEl.setPointerCapture(e.pointerId); } catch (_) { /* sin captura */ } py0 = e.clientY; press(); });
-  gcEl.addEventListener("pointermove", e => { if (py0 !== null && s && e.clientY - py0 > 26) s.fast = true; });
-  const up = () => { py0 = null; release(); if (s) s.fast = false; };
+  /* Táctil: si tocas estando en el aire, el salto espera ~90 ms; si en ese tiempo deslizas hacia abajo, solo cae (no vuelve a saltar al aterrizar) */
+  let pend = 0, swiped = false;
+  gcEl.addEventListener("pointerdown", e => {
+    if (e.target.closest(".gc-close")) return; e.preventDefault(); try { gcEl.setPointerCapture(e.pointerId); } catch (_) { /* sin captura */ }
+    py0 = e.clientY; swiped = false; clearTimeout(pend); pend = 0;
+    if (st === "run" && s && s.y < GY - S - 2) pend = setTimeout(() => { pend = 0; if (!swiped) press(); }, 90); else press();
+  });
+  gcEl.addEventListener("pointermove", e => {
+    if (py0 !== null && s && !swiped && e.clientY - py0 > 18) { swiped = true; clearTimeout(pend); pend = 0; s.fast = true; s.holding = false; }
+  });
+  gcEl.addEventListener("contextmenu", e => e.preventDefault());
+  const up = () => { py0 = null; if (pend) { clearTimeout(pend); pend = 0; if (!swiped) press(); } release(); if (s) s.fast = false; };
   gcEl.addEventListener("pointerup", up); gcEl.addEventListener("pointercancel", up);
   addEventListener("resize", () => { if (gcEl.classList.contains("open")) fit(); });
   const begin = () => { cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); };
