@@ -29,7 +29,7 @@ body:has(#v-calendario:not([hidden])) .foot{display:none}
 
 .cal-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;margin-bottom:4px}
 .cal-title{display:block;text-align:center;padding:2px 6px;border:0;border-radius:12px;background:none;color:inherit;font:inherit;cursor:pointer;min-width:0}
-.cal-month{font:400 clamp(.95rem,calc(var(--cal-w) / 21),1.9rem)/1.1 var(--mc);color:var(--y);text-shadow:0 0 18px rgba(255,176,70,.45);white-space:nowrap}
+.cal-month{font:400 clamp(.95rem,calc(var(--cal-w) / 21),2.4rem)/1.1 var(--mc);color:var(--y);text-shadow:0 0 18px rgba(255,176,70,.45);white-space:nowrap}
 .cal-today{display:block;margin:0 auto 14px;padding:2px 8px;border:0;border-radius:8px;background:none;font:400 clamp(.72rem,1.5vw,.85rem) "Noto Sans",system-ui,sans-serif;color:var(--m);white-space:nowrap;cursor:pointer;transition:color .25s}
 .cal-today:hover{color:var(--t)}
 .cal-head .btn.round{width:clamp(34px,calc(var(--cal-w) / 13),42px);height:clamp(34px,calc(var(--cal-w) / 13),42px);font-size:1.4rem}
@@ -88,7 +88,7 @@ body:has(#v-calendario:not([hidden])) .foot{display:none}
 .cal-side.r .tab{left:16px}
 .cal-side:hover .tab,.cal-side:focus-within .tab,.cal-side.open .tab{opacity:0;transition-delay:0s}
 
-.cal-side .in{position:absolute;top:0;bottom:0;width:var(--cw);padding:18px;display:flex;flex-direction:column;gap:12px;min-height:0;opacity:0;transition:opacity .2s}
+.cal-side .in{position:absolute;top:0;bottom:0;width:var(--cw);padding:18px 16px;display:flex;flex-direction:column;gap:12px;min-height:0;opacity:0;transition:opacity .2s}
 .cal-side.l .in{right:16px}
 .cal-side.r .in{left:16px}
 .cal-side:hover .in,.cal-side:focus-within .in,.cal-side.open .in{opacity:1;transition:opacity .4s .22s}
@@ -98,8 +98,9 @@ body:has(#v-calendario:not([hidden])) .foot{display:none}
 .cs-ev b{font-weight:700;line-height:1.25}
 .cs-ev span{font-size:.85rem;color:var(--m)}
 .cs-tz{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
-.cs-tz li{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:.42rem 0;border-bottom:1px solid var(--line);font-size:.93rem}
+.cs-tz li{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:.42rem 0;border-bottom:1px solid var(--line);font-size:.9rem;white-space:nowrap}
 .cs-tz li:last-child{border-bottom:0}
+.cs-tz li.def span{color:var(--y)}
 .cs-tz b{font-variant-numeric:tabular-nums;font-weight:700}
 .cs-tz small{color:var(--m);font-weight:400;margin-left:.35rem}
 .cs-empty{margin:0;color:var(--m);font-size:.92rem}
@@ -137,6 +138,24 @@ body:has(#v-calendario:not([hidden])) .foot{display:none}
 .ed-sw button{width:28px;height:28px;padding:0;border-radius:50%;border:2px solid transparent;background:var(--c);cursor:pointer;box-shadow:0 0 10px -2px var(--c);transition:transform .25s var(--ease)}
 .ed-sw button[aria-pressed=true]{border-color:#fff;transform:scale(1.15)}
 .cal-ed form .btn+.btn{margin-top:.5rem}
+
+/* ---------- Escritorio: el calendario ocupa el máximo de pantalla (casillas más anchas que altas) ---------- */
+@media(min-width:981px){
+  #v-calendario.view{
+    --P:46px;
+    --rh:clamp(38px,calc((100dvh - var(--hh) - 316px) / 6),120px);                 /* alto de cada fila de días */
+    --cal-w:clamp(300px,min(calc(var(--rh) * 10.15 + 64px),calc(100vw - 468px)),1500px);
+    --cw:clamp(190px,calc((100vw - var(--cal-w)) / 2 - 14px),272px);                /* cartas delgadas */
+  }
+  .cal-stage{bottom:124px}                                                         /* espacio fijo para el mensaje de abajo */
+  .cal-grid{grid-auto-rows:var(--rh)}
+  .cal .d{aspect-ratio:auto;height:100%;font-size:clamp(.85rem,calc(var(--rh) * .27),1.6rem)}
+  .cal .d.has span{margin-top:-9px}
+  .bars{left:24%;right:24%;bottom:14%}
+  .bars i{height:clamp(3px,calc(var(--rh) * .05),5px)}
+  .cal-week{font-size:clamp(.78rem,calc(var(--rh) * .2),1rem)}
+  .cal-today{font-size:clamp(.8rem,1.1vw,1rem)}
+}
 
 /* ---------- Pantallas estrechas: las cartas se pegan a los bordes y, al tocarlas, se abren sobre el calendario ---------- */
 @media(max-width:980px){
