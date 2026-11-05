@@ -71,6 +71,7 @@ function route() {
   if (cur === "jugadores") renderPlayers();
   if (cur === "perfil") renderProfile(arg);
   if (cur === "juego") Arcade.enter(); else Arcade.leave();
+  document.body.classList.toggle("noscroll", cur === "juego");
   $("#dc").hidden = cur !== "inicio"; dispatchEvent(new Event("dcsync"));
   window.scrollTo(0, 0); if (cur === "inicio") fitSub();
 }
@@ -764,14 +765,52 @@ const Game = (() => {
     aT += k / 60 * (st !== "run" ? ANIMS.idle.fps : aAir ? ANIMS.jump.fps * 1.5 : ANIMS.walk.fps * 1.5);   // andar y salto a 1,5×
     draw(); raf = requestAnimationFrame(loop);
   }
-  const key = e => { if (!$("#v-juego").hidden && !$("#gamecard").hidden && ["Space", "ArrowUp"].includes(e.code) && modal.hidden) { e.preventDefault(); jump(); } };
+  const key = e => { if (!$("#v-juego").hidden && $("#gamecard").classList.contains("open") && ["Space", "ArrowUp"].includes(e.code) && modal.hidden) { e.preventDefault(); jump(); } };
   addEventListener("keydown", key);
   cv.addEventListener("pointerdown", e => { e.preventDefault(); jump(); });
   return {
     show() { s = s || reset(); loadFace(); cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); },
+    start() { s = reset(); st = "run"; loadFace(); cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); },
     stop() { cancelAnimationFrame(raf); },
     refresh() { loadFace(); }
   };
+})();
+
+/* ---------- Jugar: el personaje salta a la isla y el juego se abre a pantalla completa ---------- */
+const Play = (() => {
+  const gc = $("#gamecard"), bgEl = $("#gc-bg");
+  const isOpen = () => gc.classList.contains("open");
+  function jumpTo(target, done) {
+    const src = document.querySelector("#rk-me canvas");
+    if (!src || !src.width) return done();
+    const a = src.getBoundingClientRect(), b = target.getBoundingClientRect();
+    const f = document.createElement("canvas"); f.width = src.width; f.height = src.height; f.getContext("2d").drawImage(src, 0, 0);
+    f.style.cssText = `position:fixed;left:${a.left}px;top:${a.top}px;width:${a.width}px;height:${a.height}px;z-index:300;pointer-events:none;image-rendering:pixelated;transform-origin:50% 100%`;
+    document.body.append(f); src.style.visibility = "hidden";
+    const ex = b.left + b.width / 2 - a.width / 2, ey = b.top + b.height * .4 - a.height, lift = Math.min(240, innerHeight * .3), T = 800, t0 = performance.now();
+    const step = now => {
+      const t = Math.min(1, (now - t0) / T), e = t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const x = (ex - a.left) * e, y = (ey - a.top) * e - Math.sin(Math.PI * t) * lift;
+      f.style.transform = `translate(${x}px,${y}px) scale(${1 - .4 * t}) rotate(${Math.sin(Math.PI * t) * -14}deg)`;
+      if (t < 1) requestAnimationFrame(step); else { f.remove(); src.style.visibility = ""; done(); }
+    };
+    requestAnimationFrame(step);
+  }
+  function open(w) {
+    bgEl.style.backgroundImage = `url("${w.bg}")`;
+    gc.classList.add("open"); gc.setAttribute("aria-hidden", "false");
+    try { const r = gc.requestFullscreen ? gc.requestFullscreen() : gc.webkitRequestFullscreen && gc.webkitRequestFullscreen(); if (r && r.catch) r.catch(() => {}); } catch (e) {}
+    Game.start();
+  }
+  function close() {
+    if (!isOpen()) return;
+    gc.classList.remove("open"); gc.setAttribute("aria-hidden", "true"); Game.stop();
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+  $("#gc-close").onclick = close;
+  document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement) close(); });
+  addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+  return { jumpTo, open, close, isOpen };
 })();
 
 /* ---------- Arcade: carrusel vertical de mundos ---------- */
@@ -813,8 +852,7 @@ const Arcade = (() => {
     mainEl.style.setProperty("--acc", w.acc);
     $("#ar-world").textContent = g ? w.name : "Próximamente"; $("#ar-name").textContent = g ? g.name : w.name;
     $("#rk-game").textContent = g ? g.name : w.name;
-    $("#gamecard").hidden = !g; $("#soonbox").hidden = !!g;
-    if (g) { if (active) Game.show(); } else { Game.stop(); $("#soon-img").src = w.img; $("#soon-p").textContent = w.name + " todavía está en construcción."; }
+    $("#soonbox").hidden = true;
     mainEl.classList.remove("swap"); void mainEl.offsetWidth; mainEl.classList.add("swap");
     renderRank();
   }
@@ -853,7 +891,7 @@ const Arcade = (() => {
   const endDrag = e => {
     if (!drag || e.pointerId !== drag.id) return;
     const d = drag; drag = null; stage.classList.remove("drag");
-    if (!d.moved) { if (d.card) { const i = +d.card.dataset.i; if (i !== cur()) go(i); } return; }
+    if (!d.moved) { if (d.card) { const i = +d.card.dataset.i; if (i !== cur()) go(i); else launch(); } return; }
     const dy = e.clientY - d.y0, stepPx = (cards[0].el.offsetHeight || 190) * .84, base = Math.round(d.p0);
     let t = Math.round(pos - d.v * 160 / stepPx); if (t === base && Math.abs(dy) > 40) t = base + (dy < 0 ? 1 : -1);
     tween(t);
@@ -861,10 +899,19 @@ const Arcade = (() => {
   stage.addEventListener("pointerup", endDrag);
   stage.addEventListener("pointercancel", e => { if (drag && e.pointerId === drag.id) { drag = null; stage.classList.remove("drag"); tween(Math.round(pos)); } });
 
+  let launching = false;
+  function launch() {                                          // clic en la isla actual: el personaje salta y arranca el juego
+    const w = WORLDS[cur()], el = cards[cur()].el;
+    if (!w.game) { el.classList.remove("nope"); void el.offsetWidth; el.classList.add("nope"); return; }
+    if (launching || Play.isOpen()) return; launching = true;
+    Play.jumpTo(el.querySelector(".ico") || el, () => { launching = false; Play.open(w); });
+  }
+  stage.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); launch(); } });
+
   layout();
   return {
     enter() { active = true; sel = -1; layout(); sync(); Mine.reset(); Mine.start(); },
-    leave() { active = false; Game.stop(); Mine.stop(); },
+    leave() { active = false; Play.close(); Game.stop(); Mine.stop(); },
     refresh() { if (active && sel >= 0) { Mine.reset(); renderRank(); } },
     playable: () => active && !!WORLDS[sel] && !!WORLDS[sel].game
   };
