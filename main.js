@@ -49,7 +49,7 @@ const MEDALS = {
 };
 /* Minijuegos con récord personal: col = colección de Firestore, field = campo con el récord */
 const GAMES = [
-  { id: "runner", name: "Salta el cactus", col: "scores", field: "score", unit: "puntos" }
+  { id: "runner", name: "Desert Rush", col: "scores", field: "score", unit: "puntos" }
 ];
 const medalCount = d => Array.isArray(d.medalIds) ? d.medalIds.length : (Number(d.medals) || 0);
 const pLink = n => "#perfil/" + encodeURIComponent(n);
@@ -63,14 +63,53 @@ const me = () => profile;
 const V = ["inicio", "proyectos", "calendario", "jugadores", "perfil", "juego", "mercado", "creditos"];
 function hashParts() { const [h, ...r] = location.hash.slice(1).split("/"); let a = ""; try { a = decodeURIComponent(r.join("/")); } catch (e) {} return [h, a]; }
 function refreshView() { const [h, a] = hashParts(); if (h === "jugadores") renderPlayers(); else if (h === "perfil") renderProfile(a); }
+const SUB = ["juego", "jugadores", "mercado"];      // secciones de la barra lateral (de arriba abajo)
+let prevView = null, outTimer = 0, subIdx = -1;
+const pill = $("#subnav .sn-pill");
+/* La píldora amarilla se coloca con la posición real del icono activo (funciona igual en vertical y en horizontal) */
+function movePill(i, instant) {
+  const a = $$("#subnav a")[i]; if (!a || !pill) return;
+  if (instant) pill.style.transition = "none";
+  pill.style.transform = `translate(${a.offsetLeft}px,${a.offsetTop}px)`;
+  if (instant) { void pill.offsetWidth; pill.style.transition = ""; }
+}
+/* Jugadores: la página no hace scroll, solo la tabla. Se calcula la altura que queda libre bajo la cabecera. */
+function fitPlayers() {
+  const w = $(".plwrap"); if (!w || $("#v-jugadores").hidden) return;
+  let y = 0, el = w; while (el) { y += el.offsetTop; el = el.offsetParent; }   // offsetTop ignora las animaciones de entrada
+  w.style.height = Math.max(240, innerHeight - y - (matchMedia("(max-width:860px)").matches ? 92 : 20)) + "px";
+}
+addEventListener("resize", () => { movePill(subIdx, true); fitPlayers(); });
+if (document.fonts) document.fonts.ready.then(() => { movePill(subIdx, true); fitPlayers(); });
+const OUTSTY = ["top", "left", "width", "right", "margin", "box-sizing"];
 function route() {
   stopAvatar();
-  const [h, arg] = hashParts(), cur = V.includes(h) ? h : "inicio";
-  V.forEach(v => $("#v-" + v).hidden = v !== cur);
+  const [h, arg] = hashParts(), cur = V.includes(h) ? h : "inicio", prev = prevView, curEl = $("#v-" + cur);
+  const sub = prev && prev !== cur && SUB.includes(prev) && SUB.includes(cur), dir = sub ? Math.sign(SUB.indexOf(cur) - SUB.indexOf(prev)) : 0;
+  const prevBox = sub ? $("#v-" + prev).getBoundingClientRect() : null;   // dónde está ahora la sección que se va (antes de ocultarla)
+  clearTimeout(outTimer);
+  V.forEach(v => { const e = $("#v-" + v); e.classList.remove("vin", "vout", "from-b", "from-t", "to-t", "to-b"); OUTSTY.forEach(p => e.style.removeProperty(p)); e.hidden = v !== cur; });
+  if (prev && prev !== cur) {                                 // la sección nueva entra suave; entre secciones de la barra, deslizando en vertical
+    void curEl.offsetWidth; curEl.classList.add("vin", dir > 0 ? "from-b" : dir < 0 ? "from-t" : "fade");
+    if (sub) {                                                // la anterior se queda congelada en su sitio y se desliza hacia fuera
+      const pe = $("#v-" + prev); pe.hidden = false;
+      Object.assign(pe.style, { top: prevBox.top + "px", left: prevBox.left + "px", width: prevBox.width + "px", right: "auto", margin: "0", boxSizing: "border-box" });
+      pe.classList.add("vout", dir > 0 ? "to-t" : "to-b");
+      outTimer = setTimeout(() => { pe.hidden = true; pe.classList.remove("vout", "to-t", "to-b"); OUTSTY.forEach(p => pe.style.removeProperty(p)); }, 340);
+    }
+  }
+  prevView = cur;
   $$(".nav a").forEach(a => a.classList.toggle("on", a.dataset.v === (["jugadores", "perfil", "juego", "mercado"].includes(cur) ? "comunidad" : cur)));
+  const sn = $("#subnav"), si = SUB.indexOf(cur), was = sn.classList.contains("show");
+  sn.hidden = false; sn.classList.toggle("show", si >= 0);
+  if (si >= 0) { subIdx = si; movePill(si, !was); }            // si la barra ya estaba visible, la píldora se desliza; si no, aparece en su sitio
+  $$("#subnav a").forEach((a, i) => a.classList.toggle("on", i === si));
   if (cur === "jugadores") renderPlayers();
   if (cur === "perfil") renderProfile(arg);
-  if (cur === "juego") { renderRank(); Game.show(); } else Game.stop();
+  if (cur === "juego") Arcade.enter(); else Arcade.leave();
+  document.body.classList.toggle("noscroll", cur === "juego");
+  document.body.classList.toggle("plfix", cur === "jugadores");
+  if (cur === "jugadores") { fitPlayers(); requestAnimationFrame(fitPlayers); }
   $("#dc").hidden = cur !== "inicio"; dispatchEvent(new Event("dcsync"));
   window.scrollTo(0, 0); if (cur === "inicio") fitSub();
 }
@@ -333,17 +372,131 @@ form.onsubmit = async e => {
   if (mode === "signup") showStep(); else closeM();
 };
 
-/* ---------- Jugadores ---------- */
-async function renderPlayers() {
-  const tb = $("#players");
-  try {
-    const snap = await getDocs(query(collection(db, "players"), limit(100)));
-    const list = snap.docs.map(d => d.data()).sort((a, b) => medalCount(b) - medalCount(a) || String(a.name).localeCompare(String(b.name)));
-    tb.innerHTML = list.length
-      ? list.map((u, i) => `<tr><td>${i + 1}</td><td><span class="pl"><img src="${esc(okAv(u.avatar))}" alt=""><a href="${esc(pLink(u.name))}">${esc(u.name)}</a></span></td><td>${medalCount(u)}</td></tr>`).join("")
-      : `<tr><td colspan="3" class="empty">Aún no hay jugadores registrados.</td></tr>`;
-  } catch (e) { console.warn(e); tb.innerHTML = `<tr><td colspan="3" class="empty">No se pudo cargar la lista de jugadores.</td></tr>`; }
+/* ---------- Filas con avatar de cuerpo completo (compartidas por Jugadores y Ranking) ---------- */
+const figCache = new Map();
+function figsFor(uid, name, avatar) {                        // { img, slim } de la skin del jugador (se guarda en caché)
+  const key = uid + "|" + avatar;
+  if (!figCache.has(key)) figCache.set(key, (async () => {
+    let md = null;
+    try { const d = await getDoc(doc(db, "avatars", uid)); md = d.exists() ? d.data() : null; } catch (e) { /* sin skin guardada */ }
+    const img = await loadSkin(skinSources(name, avatar, md));
+    return img ? { img, slim: !!(md && md.slim) } : null;
+  })());
+  return figCache.get(key);
 }
+function drawTrim(cv, fig) {                                 // recorta el hueco transparente para que el avatar llene su espacio
+  let x = 0, y = 0, w = fig.width, h = fig.height;
+  try {
+    const d = fig.getContext("2d").getImageData(0, 0, w, h).data; let x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (d[(j * w + i) * 4 + 3] > 8) { if (i < x0) x0 = i; if (i > x1) x1 = i; if (j < y0) y0 = j; if (j > y1) y1 = j; }
+    if (x1 >= 0) { x = x0; y = y0; w = x1 - x0 + 1; h = y1 - y0 + 1; }
+  } catch (e) { const pt = fig.padT || 0, pb = fig.padB || 0; y = pt; h = fig.height - pt - pb; }
+  cv.width = w; cv.height = h; const g = cv.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(fig, x, y, w, h, 0, 0, w, h);
+}
+async function paintFig(cv) {
+  const { uid, name, avatar } = cv.dataset, f = await figsFor(uid, name, avatar);
+  if (f) { try { drawTrim(cv, createFigureSet(f.img, { slim: f.slim, k: 3 }).get("idle", 0).fig); cv.classList.add("ready"); return; } catch (e) { console.warn(e); } }
+  const im = new Image(); im.onload = () => { cv.width = im.width; cv.height = im.height; cv.getContext("2d").drawImage(im, 0, 0); cv.classList.add("ready"); }; im.src = okAv(avatar);
+}
+const figIO = "IntersectionObserver" in window ? new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { figIO.unobserve(e.target); paintFig(e.target); } }), { rootMargin: "300px" }) : null;
+function rowEl(o) {                                          // o: { uid, name, avatar, pos, val, unit, sub, mine, sm, i }
+  const a = document.createElement("a"), p = o.pos;
+  a.className = "prow" + (p <= 3 ? " t" + p : "") + (o.mine ? " mine" : "") + (o.sm ? " sm" : "");
+  a.href = pLink(o.name); a.dataset.uid = o.uid; a.style.setProperty("--i", Math.min(o.i || 0, 14));
+  a.innerHTML = `<span class="plate"><b class="pos"></b><span class="pfig"><canvas data-uid="${esc(o.uid)}" data-name="${esc(o.name)}" data-avatar="${esc(o.avatar || "")}" aria-hidden="true"></canvas></span></span>
+    <span class="pnm"><b>${esc(o.name)}</b><span class="sub"></span></span><span class="pval"></span>`;
+  a.addEventListener("animationend", e => { if (e.target === a) a.classList.add("done"); });
+  setRow(a, o);
+  const cv = a.querySelector("canvas"); if (o.now || !figIO) paintFig(cv); else figIO.observe(cv);
+  return a;
+}
+function setRow(a, o) {                                      // actualiza posición, colores de top y estadística
+  a.className = a.className.replace(/\bt[123]\b/g, "").trim() + (o.pos <= 3 ? " t" + o.pos : "");
+  const pos = a.querySelector(".pos"); pos.textContent = o.pos; pos.dataset.l = String(o.pos).length;
+  a.querySelector(".sub").textContent = o.sub || "";
+  a.querySelector(".pval").innerHTML = `${esc(o.val)}${o.unit ? `<small>${esc(o.unit)}</small>` : ""}`;
+}
+function flip(box, mutate) {                                 // anima el cambio de orden (FLIP)
+  const first = new Map([...box.children].map(e => [e, e.getBoundingClientRect().top]));
+  mutate();
+  [...box.children].forEach(e => {
+    if (!first.has(e)) return; const dy = first.get(e) - e.getBoundingClientRect().top;
+    if (dy) e.animate([{ translate: `0 ${dy}px` }, { translate: "0 0" }], { duration: 650, easing: "cubic-bezier(.22,.8,.3,1)" });
+  });
+}
+
+/* ---------- Jugadores ---------- */
+const SORTS = [
+  { id: "medallas", label: "Medallas" }, { id: "monedas", label: "Monedas" },
+  { id: "nuevos", label: "Más nuevos" }, { id: "antiguos", label: "Más antiguos" },
+  { id: "puntuaciones", label: "Mejores puntuaciones" }
+];
+let plSort = "medallas", plData = [], plRows = new Map();
+const coinsOf = d => Number(d.coins ?? d.monedas) || 0;
+const msOf = d => { try { return d.createdAt.toMillis(); } catch (e) { return 0; } };
+const shortDate = ts => { try { return ts.toDate().toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }); } catch (e) { return "—"; } };
+const nf = n => Number(n).toLocaleString("es-MX");
+function statOf(u, mode) {
+  const med = medalCount(u), co = coinsOf(u), sc = u.score;
+  switch (mode) {
+    case "monedas": return { val: nf(co), unit: "monedas", sub: med + (med === 1 ? " medalla" : " medallas") };
+    case "nuevos": case "antiguos": return { val: shortDate(u.createdAt), unit: mode === "nuevos" ? "se unió" : "miembro desde", sub: med + (med === 1 ? " medalla" : " medallas") };
+    case "puntuaciones": return { val: sc ? nf(sc) : "—", unit: sc ? "puntos" : "sin récord", sub: med + (med === 1 ? " medalla" : " medallas") };
+    default: return { val: nf(med), unit: med === 1 ? "medalla" : "medallas", sub: nf(co) + " monedas" };
+  }
+}
+function sortPlayers(list, mode) {
+  const nm = (a, b) => String(a.name).localeCompare(String(b.name));
+  const f = {
+    medallas: (a, b) => medalCount(b) - medalCount(a) || nm(a, b),
+    monedas: (a, b) => coinsOf(b) - coinsOf(a) || nm(a, b),
+    nuevos: (a, b) => msOf(b) - msOf(a) || nm(a, b),
+    antiguos: (a, b) => (msOf(a) || Infinity) - (msOf(b) || Infinity) || nm(a, b),
+    puntuaciones: (a, b) => (b.score || 0) - (a.score || 0) || nm(a, b)
+  }[mode];
+  return [...list].sort(f);
+}
+function paintPlayers(animate) {
+  const box = $("#players"), list = sortPlayers(plData, plSort);
+  if (!list.length) { box.innerHTML = `<p class="empty">Aún no hay jugadores registrados.</p>`; plRows.clear(); return; }
+  const first = !box.querySelector(".prow"), mine = me() && me().uid;
+  const apply = () => list.forEach((u, i) => {
+    const o = { uid: u.id, name: u.name, avatar: u.avatar, pos: i + 1, i, mine: u.id === mine, ...statOf(u, plSort) };
+    let el = plRows.get(u.id);
+    if (!el) { el = rowEl(o); plRows.set(u.id, el); } else setRow(el, o);
+    el.classList.toggle("mine", o.mine);
+    box.append(el);                                          // append ordena los nodos existentes
+  });
+  if (first || !animate) { box.innerHTML = ""; if (first) plRows.clear(); apply(); } else flip(box, apply);
+}
+async function renderPlayers() {
+  const box = $("#players");
+  try {
+    const [snap, sc] = await Promise.all([
+      getDocs(query(collection(db, "players"), limit(100))),
+      getDocs(query(collection(db, "scores"), limit(500))).catch(() => null)
+    ]);
+    const scores = new Map(); if (sc) sc.docs.forEach(d => scores.set(d.id, Math.floor(Number(d.data().score)) || 0));
+    plData = snap.docs.map(d => ({ id: d.id, ...d.data(), score: scores.get(d.id) || 0 }));
+    const had = !!box.querySelector(".prow"); plRows = had ? plRows : new Map();
+    paintPlayers(had);
+  } catch (e) { console.warn(e); box.innerHTML = `<p class="empty">No se pudo cargar la lista de jugadores.</p>`; }
+}
+(() => {                                                     // menú del filtro
+  const root = $("#flt"), btn = $("#flt-btn"), menu = $("#flt-menu"), lab = $("#flt-label");
+  const ck = `<svg class="ck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>`;
+  menu.innerHTML = SORTS.map((s, k) => `<button class="flt-opt" type="button" role="option" data-s="${s.id}" style="--k:${k}" aria-selected="${s.id === plSort}">${s.label}${ck}</button>`).join("");
+  const set = o => { root.classList.toggle("open", o); btn.setAttribute("aria-expanded", o); };
+  btn.onclick = e => { e.stopPropagation(); set(!root.classList.contains("open")); };
+  menu.onclick = e => {
+    const b = e.target.closest(".flt-opt"); if (!b) return;
+    plSort = b.dataset.s; lab.textContent = SORTS.find(s => s.id === plSort).label;
+    menu.querySelectorAll(".flt-opt").forEach(x => x.setAttribute("aria-selected", x === b));
+    set(false); paintPlayers(true);
+  };
+  document.addEventListener("click", e => { if (!root.contains(e.target)) set(false); });
+  addEventListener("keydown", e => { if (e.key === "Escape") set(false); });
+})();
 
 /* ---------- Perfil ---------- */
 const fmtDate = ts => { try { return ts.toDate().toLocaleDateString("es-MX", { year: "numeric", month: "long", day: "numeric" }); } catch (e) { return "—"; } };
@@ -469,54 +622,167 @@ async function renderProfile(name) {
   } catch (e) { console.warn(e); if (tok === profTok) box.innerHTML = `<p class="muted">No se pudo cargar el perfil.</p>`; }
 }
 
-/* ---------- Ranking del juego ---------- */
+/* ---------- Mundos del Arcade y ranking ---------- */
+/* Para añadir un minijuego: pon su "game" (col = colección de Firestore, field = campo del récord). Los mundos con game:null salen como "Próximamente". */
+const WORLDS = [
+  { id: "desierto", name: "Desierto", acc: "#f2c14e", img: "img/mundos/desierto.png", bg: "img/fondos/desierto.jpg",
+    game: { id: "runner", name: "Desert Rush", col: "scores", field: "score", unit: "puntos" } },
+  { id: "end", name: "Elytra Fly", acc: "#b57cf0", img: "img/mundos/end.png", bg: "img/fondos/end.jpg", b: .8, game: null },
+  { id: "oceano", name: "Coral Stack", acc: "#3fd0e0", img: "img/mundos/oceano.png", bg: "img/fondos/oceano.jpg", game: null }
+];
+let selWorld = 0, rankTok = 0;
+
+/* El ranking de cada minijuego usa las mismas filas que Jugadores (rowEl): placa de bloque, avatar de cuerpo completo y animaciones */
 async function renderRank() {
-  const tb = $("#rank");
-  const row = (x, i) => {
-    const n = String(x.name || "?"), mine = me() && me().name === n;
-    return `<tr${mine ? ' class="mine"' : ""}><td>${i + 1}</td><td><span class="pl"><img src="${esc(okAv(x.avatar))}" alt=""><a href="${esc(pLink(n))}">${esc(n)}</a></span></td><td>${Math.floor(Number(x.score)) || 0}</td></tr>`;
-  };
+  const w = WORLDS[selWorld], box = $("#rank"), tok = ++rankTok;
+  if (!w.game) { box.classList.add("end"); box.innerHTML = `<p class="empty">Este mundo aún no tiene ranking.</p>`; Mine.render(null); return; }
+  box.classList.remove("end");
   try {
     let docs;
-    try { docs = (await getDocs(query(collection(db, "scores"), orderBy("score", "desc"), limit(10)))).docs; }
-    catch (e) { console.warn("ranking: consulta ordenada falló, ordeno en el navegador", e); docs = (await getDocs(query(collection(db, "scores"), limit(200)))).docs; }
-    const r = docs.map(d => d.data()).filter(x => Number(x.score) > 0).sort((a, b) => Number(b.score) - Number(a.score)).slice(0, 10);
-    tb.innerHTML = r.length ? r.map(row).join("") : `<tr><td colspan="3" class="empty">Sé el primero en el ranking.</td></tr>`;
-  } catch (e) { console.warn(e); tb.innerHTML = `<tr><td colspan="3" class="empty">No se pudo cargar el ranking${e && e.code ? " (" + esc(e.code) + ")" : ""}.</td></tr>`; }
+    try { docs = (await getDocs(query(collection(db, w.game.col), orderBy(w.game.field, "desc"), limit(200)))).docs; }
+    catch (e) { console.warn("ranking: consulta ordenada falló, ordeno en el navegador", e); docs = (await getDocs(query(collection(db, w.game.col), limit(200)))).docs; }
+    if (tok !== rankTok) return;
+    const all = docs.map(d => ({ id: d.id, ...d.data() })).filter(x => Number(x[w.game.field]) > 0).sort((a, b) => Number(b[w.game.field]) - Number(a[w.game.field]));
+    const u = me(), top = all.slice(0, 50);
+    box.innerHTML = "";
+    if (!top.length) box.innerHTML = `<p class="empty">Sé el primero en el ranking.</p>`;
+    top.forEach((x, i) => box.append(rowEl({ uid: x.id, name: String(x.name || "?"), avatar: x.avatar, pos: i + 1, i, sm: true, now: i < 10,
+      mine: !!u && u.uid === x.id, val: nf(Math.floor(Number(x[w.game.field])) || 0), unit: w.game.unit })));
+    box.scrollTop = 0; box.classList.toggle("end", top.length <= 9);
+    const idx = u ? all.findIndex(x => x.id === u.uid) : -1;
+    let best = idx >= 0 ? Math.floor(Number(all[idx][w.game.field])) : null;
+    if (u && best === null) { try { const s = await getDoc(doc(db, w.game.col, u.uid)); if (s.exists()) best = Math.floor(Number(s.data()[w.game.field])) || null; } catch (e) { /* sin récord */ } }
+    if (tok === rankTok) Mine.render({ pos: idx >= 0 ? idx + 1 : null, best });
+  } catch (e) { console.warn(e); if (tok === rankTok) { box.classList.add("end"); box.innerHTML = `<p class="empty">No se pudo cargar el ranking${e && e.code ? " (" + esc(e.code) + ")" : ""}.</p>`; } }
 }
 async function saveScore(score) {
-  const u = me(); if (!u || !score) return;
+  const u = me(), g = WORLDS[0].game; if (!u || !score) return;
   try {
-    const ref = doc(db, "scores", u.uid), snap = await getDoc(ref);
-    if (snap.exists() && snap.data().score >= score) return;
-    await setDoc(ref, { name: u.name, avatar: u.avatar, score: Math.floor(score) });
-    renderRank();
-  } catch (e) { console.warn("No se pudo guardar el puntaje:", e); const t = $("#rank"); if (t) t.insertAdjacentHTML("beforeend", `<tr><td colspan="3" class="empty">No se pudo guardar tu puntaje${e && e.code ? " (" + esc(e.code) + ")" : ""}.</td></tr>`); }
+    const ref = doc(db, g.col, u.uid), snap = await getDoc(ref);
+    if (snap.exists() && snap.data()[g.field] >= score) return;
+    await setDoc(ref, { name: u.name, avatar: u.avatar, [g.field]: Math.floor(score) });
+    if (WORLDS[selWorld].game === g) renderRank();
+  } catch (e) { console.warn("No se pudo guardar el puntaje:", e); Mine.note(`No se pudo guardar tu puntaje${e && e.code ? " (" + e.code + ")" : ""}.`); }
 }
+
+/* Tu sección del ranking: fija bajo la tabla, con tu personaje en animación idle */
+const Mine = (() => {
+  const box = $("#rk-me"); let set = null, raf = 0, cv = null, tok = 0, last = -1, shown = "";
+  const loop = t => {
+    if (cv && set) { const i = Math.floor(t / 1000 * ANIMS.idle.fps) % ANIMS.idle.frames.length;
+      if (i !== last) { last = i; const { fig } = set.get("idle", i); cv.width = fig.width; cv.height = fig.height; const g = cv.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(fig, 0, 0); } }
+    raf = requestAnimationFrame(loop);
+  };
+  async function load(u) {
+    const k = ++tok, f = u ? await figsFor(u.uid, u.name, u.avatar) : await loadSkin(["https://minotar.net/skin/MHF_Steve", "https://mc-heads.net/skin/MHF_Steve", LOCAL_SKIN]).then(i => i && { img: i, slim: false });
+    if (k !== tok || !f) return; set = createFigureSet(f.img, { slim: f.slim, k: 3 }); last = -1;
+  }
+  return {
+    render(d) {
+      const u = me(); if (!d) { box.hidden = true; return; } box.hidden = false;
+      const g = WORLDS[selWorld].game, sig = (u ? u.uid : "guest") + "|" + (u && u.avatar);
+      const sub = !u ? "Inicia sesión para entrar al ranking" : d.pos ? "Puesto #" + d.pos : d.best ? "Fuera del top 200" : "Aún sin récord";
+      box.innerHTML = `<div class="rec"><small>Record</small><b>${d.best ? nf(d.best) : "—"}</b><span>${sub}</span></div>
+        <div class="you"><canvas aria-hidden="true"></canvas></div>
+        <p class="rk-note" id="rk-note" hidden></p>`;
+      cv = box.querySelector("canvas");
+      if (sig !== shown || !set) { shown = sig; set = null; load(u); } else last = -1;
+      if (!raf) raf = requestAnimationFrame(loop);
+    },
+    note(t) { const n = $("#rk-note"); if (n) { n.textContent = t; n.hidden = false; } },
+    start() { if (!raf) raf = requestAnimationFrame(loop); },
+    stop() { cancelAnimationFrame(raf); raf = 0; },
+    reset() { shown = ""; }
+  };
+})();
 
 /* ---------- Minijuego ---------- */
 const Game = (() => {
-  const cv = $("#cv"), c = cv.getContext("2d"), W = 800, GY = 200, S = 36, B = 24, MAXT = 3, MAXCOINS = 25;
-  const IMG = {}; ["totem", "cactus", "flor", "arena", "arena-roja", "madera", "cemento-blanco"].forEach(n => { const i = new Image(); i.src = "img/" + n + ".png"; IMG[n] = i; });
-  const BIOMES = [
-    { at: 0, name: "Desierto", ground: "#d9ca9a", obstacle: "cactus" },
-    { at: 7000, name: "Templo", ground: "#d9ca9a", obstacle: "husk" },
-    { at: 14000, name: "Aldea", ground: "#d9ca9a", obstacle: "camel" },
-    { at: 21000, name: "Desierto rojo", ground: "#b5541c", obstacle: "parched" },
-    { at: 30000, name: "Mesetas", ground: "#ad7652", obstacle: "cliff" },
-    { at: 42000, name: "Mineshaft", ground: "#342923", obstacle: "minecart" }
-  ];
+  const cv = $("#cv"), c = cv.getContext("2d"), S = 36, B = 24, BIOME_AT = 21000, MAXT = 3;
+  let W = 800, H = 380, GY = 258, SC = 1;                     // el mundo se adapta a la ventana: W×H lógicos, SC = escala en pantalla
+  const IMG = {}; ["totem", "cactus", "flor", "arena", "arena-roja"].forEach(n => { const i = new Image(); i.src = "img/" + n + ".png"; IMG[n] = i; });
   const ok = i => i.complete && i.naturalWidth > 0;
   let raf = 0, last = 0, st = "idle", s, figs = null, figKey = "", figTok = 0, aT = 0, aAir = false;
   const rnd = (a, b) => a + Math.random() * (b - a);
-  const reset = () => {
-    cv.style.background = "";
-    const day = new Date().toISOString().slice(0, 10), saved = JSON.parse(localStorage.getItem("hood-desert-coins") || "null");
-    const coins = saved && saved.day === day ? Math.min(MAXCOINS, Number(saved.count) || 0) : 0;
-    return { y: GY - S, vy: 0, obs: [], tot: [], coins: [], pts: [], speed: 5, dist: 0, next: 420, totems: 0, inv: 0, boost: 0, biome: 0, banner: 0, coinsCollected: coins, jumpHeld: false,
-      clouds: Array.from({ length: 4 }, () => ({ x: rnd(0, W), y: rnd(20, 90) })),
-      mesas: Array.from({ length: 3 }, (_, i) => ({ x: i * 300 + rnd(0, 120), w: rnd(120, 200), h: rnd(50, 95) })) };
-  };
+  function fit() {                                           // el lienzo ocupa toda la ventana (altura lógica ≈380, ancho mínimo 480)
+    const vw = innerWidth, vh = innerHeight; SC = Math.min(vh / 380, vw / 480);
+    const nw = Math.ceil(vw / SC), nh = Math.ceil(vh / SC), ngy = Math.round(nh * .68), d = ngy - GY;
+    if (s && d && s.y >= GY - S) s.y += d;
+    W = nw; H = nh; GY = ngy; cv.width = W; cv.height = H;
+  }
+  const reset = () => ({ y: GY - S, vy: 0, obs: [], tot: [], pts: [], speed: 5, dist: 0, next: 420, totems: 0, inv: 0, boost: 0, biome: 0, bt: 0, banner: 0,
+    clouds: Array.from({ length: 6 }, () => ({ x: rnd(0, W), y: rnd(16, GY * .42) })) });
+
+  /* ---- Fondo dinámico: capas con parallax que cambian con el bioma ----
+   * Desierto: dunas suaves y, en la capa más lejana, siluetas de cactus.   Meseta: mesetas de roca por capas.
+   * Para que no se confundan con los obstáculos: todo el fondo es más pequeño, va velado hacia el color del horizonte,
+   * sin verde saturado, y los cactus lejanos nunca están a la altura del suelo (viven sobre la duna lejana). */
+  const hx = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const mixc = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  const rgb = (a, al = 1) => `rgba(${a[0]},${a[1]},${a[2]},${al})`;
+  const hs = (n, sd) => { const x = Math.sin(n * 127.1 + sd * 311.7) * 43758.5453; return x - Math.floor(x); };   // azar repetible por celda
+  const PAL = [
+    { sky: ["#27356b", "#c06a4c", "#f6bd6e"].map(hx), hz: hx("#f6bd6e"), sun: hx("#fff0b8"), dune: ["#dcae63", "#cc9849", "#b9843c"].map(hx), cac: hx("#8d7c52") },
+    { sky: ["#2a0d14", "#8f3a22", "#e8894a"].map(hx), hz: hx("#e8894a"), sun: hx("#ffb479"), rock: ["#a9573b", "#8c4531", "#74372a"].map(hx), grd: hx("#b5541c") }
+  ];
+  const ridge = (x, base, amp, wl, sd) => base - amp * (.5 + .5 * (.6 * Math.sin(x / wl + sd) + .4 * Math.sin(x / (wl * .47) + sd * 2.3)));
+  function saguaro(x, y, h, col, al) {                        // silueta de cactus lejano (azul-pardo velado, no verde)
+    const t = Math.max(3, Math.round(h * .2)), a = Math.round(h * .3);
+    c.globalAlpha = al; c.fillStyle = rgb(col);
+    c.fillRect(x, y - h, t, h);
+    c.fillRect(x - a, y - h * .55, a + t, t); c.fillRect(x - a, y - h * .55 - a, t, a + t);
+    c.fillRect(x, y - h * .38, a + t, t); c.fillRect(x + a, y - h * .38 - a * .8, t, a * .8 + t);
+  }
+  function dunes(f, base, amp, wl, sd, col, al, cac) {
+    const sc = s.dist * f; c.globalAlpha = al; c.fillStyle = rgb(col);
+    c.beginPath(); c.moveTo(-8, GY + 2);
+    for (let x = -8; x <= W + 8; x += 8) c.lineTo(x, ridge(x + sc, base, amp, wl, sd));
+    c.lineTo(W + 8, GY + 2); c.closePath(); c.fill();
+    c.globalAlpha = al * .5; c.strokeStyle = "rgba(255,235,190,.5)"; c.lineWidth = 2; c.beginPath();      // brillo en la cresta
+    for (let x = -8; x <= W + 8; x += 8) { const y = ridge(x + sc, base, amp, wl, sd); x === -8 ? c.moveTo(x, y) : c.lineTo(x, y); } c.stroke();
+    if (cac) { const C = 190; for (let k = Math.floor(sc / C) - 1; k <= Math.floor((sc + W) / C) + 1; k++) {
+      if (hs(k, sd) < .45) continue; const wx = k * C + hs(k, sd + 1) * C * .7, x = Math.round(wx - sc);
+      if (x < -40 || x > W + 40) continue; saguaro(x, ridge(wx, base, amp, wl, sd) + 2, 14 + hs(k, sd + 2) * 16, cac, al * .9); } }
+    c.globalAlpha = 1;
+  }
+  function mesas(f, h0, h1, w0, w1, cell, sd, col, al) {
+    const sc = s.dist * f; c.globalAlpha = al;
+    for (let k = Math.floor(sc / cell) - 1; k <= Math.floor((sc + W) / cell) + 1; k++) {
+      const r1 = hs(k, sd), r2 = hs(k, sd + 1), r3 = hs(k, sd + 2), w = Math.round(w0 + r1 * (w1 - w0)), h = Math.round(h0 + r2 * (h1 - h0));
+      const x = Math.round(k * cell + r3 * (cell - w) * .9 - sc); if (x > W + 4 || x + w < -4) continue;
+      c.fillStyle = rgb(col); c.fillRect(x, GY - h, w, h + 2);
+      const bw = Math.round(w * (.35 + .2 * r2)), bh = Math.round(h * .26); c.fillRect(x + Math.round((w - bw) * r3), GY - h - bh, bw, bh + 1);   // cima escalonada
+      c.fillStyle = "rgba(0,0,0,.13)"; for (let y = GY - h * .7; y < GY; y += h * .24) c.fillRect(x, Math.round(y), w, Math.max(2, Math.round(h * .07)));   // estratos
+      c.fillStyle = "rgba(255,215,170,.2)"; c.fillRect(x, GY - h, w, 3);
+    }
+    c.globalAlpha = 1;
+  }
+  function drawBG() {
+    const A = PAL[0], B = PAL[1], t = s.bt, hz = mixc(A.hz, B.hz, t);
+    const g = c.createLinearGradient(0, 0, 0, GY); [0, .55, 1].forEach((p, i) => g.addColorStop(p, rgb(mixc(A.sky[i], B.sky[i], t))));
+    c.fillStyle = g; c.fillRect(0, 0, W, H);
+    const sx = Math.round(W * .74), sy = Math.round(GY * (.3 + .16 * t)), sc = mixc(A.sun, B.sun, t);        // sol cuadrado (estilo Minecraft) con halo
+    const halo = c.createRadialGradient(sx, sy, 8, sx, sy, 130); halo.addColorStop(0, rgb(sc, .45)); halo.addColorStop(1, rgb(sc, 0));
+    c.fillStyle = halo; c.fillRect(sx - 130, sy - 130, 260, 260); c.fillStyle = rgb(sc); c.fillRect(sx - 20, sy - 20, 40, 40);
+    c.fillStyle = `rgba(255,${Math.round(255 - 55 * t)},${Math.round(255 - 105 * t)},.15)`;                 // nubes de bloques
+    s.clouds.forEach(cl => { c.fillRect(Math.round(cl.x), Math.round(cl.y), 72, 8); c.fillRect(Math.round(cl.x) + 14, Math.round(cl.y) - 8, 40, 8); });
+    if (t < .99) {                                                                                         // DESIERTO (se desvanece al cambiar de bioma)
+      const k = 1 - t, d = A.dune.map((col, i) => mixc(col, hz, [.6, .32, .1][i]));
+      dunes(.07, GY - 74, 30, 230, 1.7, d[0], k, mixc(A.cac, hz, .35));
+      dunes(.16, GY - 40, 22, 150, 4.2, d[1], k, null);
+      dunes(.32, GY - 12, 14, 100, 7.9, d[2], k, null);
+    }
+    if (t > .01) {                                                                                         // MESETA
+      const r = B.rock.map((col, i) => mixc(col, hz, [.6, .3, .1][i]));
+      mesas(.07, 70, 120, 150, 270, 360, 3, r[0], t);
+      mesas(.16, 44, 80, 110, 190, 270, 8, r[1], t);
+      mesas(.32, 14, 28, 60, 110, 170, 13, r[2], t);
+    }
+    c.fillStyle = rgb(mixc(hx("#d9ca9a"), B.grd, t)); c.fillRect(0, GY, W, H - GY);                      // suelo
+    const fl = IMG[s.biome ? "arena-roja" : "arena"]; c.globalAlpha = .85;
+    for (let y = GY; y < H; y += 40) for (let x = -(s.dist % 40); x < W; x += 40) if (ok(fl)) c.drawImage(fl, x, y, 40, 40);
+    c.globalAlpha = 1; c.fillStyle = "rgba(0,0,0,.3)"; c.fillRect(0, GY, W, 3);                          // línea del suelo: separa fondo y pista
+  }
   /* El personaje es el avatar Drop del jugador (con su skin); si no ha iniciado sesión, el Steve por defecto */
   async function loadFace() {
     const u = me(), key = u ? u.uid + "|" + u.avatar : "guest";
@@ -535,40 +801,34 @@ const Game = (() => {
     if (st === "idle" || st === "over") { s = reset(); st = "run"; return; }
     if (s.y >= GY - S) { s.vy = -12.5; burst(80, GY, ["#7a6a40", "#a89a70"], 6); }
   }
-  function releaseJump() { if (s) s.jumpHeld = false; }
   const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   function parts(k) { s.pts.forEach(q => { q.x += q.vx * k; q.y += q.vy * k; q.vy += .25 * k; q.l -= k; }); s.pts = s.pts.filter(q => q.l > 0); }
   function update(k) {
-    const bi = Math.max(0, BIOMES.findLastIndex(b => s.dist >= b.at));
-    if (bi !== s.biome) { s.biome = bi; s.banner = 170; s.next = Math.max(s.next, 180); }
-    // Antes de la mineshaft el ritmo es practicable; dentro aumenta sin tope artificial.
-    s.speed = bi < 5 ? Math.min(12, 5 + s.dist / 6000) : Math.min(40, 12 + Math.log1p(Math.max(0, s.dist - BIOMES[5].at)) / 2.5);
+    const bi = s.dist / 10 >= BIOME_AT ? 1 : 0;
+    if (bi !== s.biome) { s.biome = bi; s.banner = 170; }
+    s.bt += (s.biome - s.bt) * Math.min(1, .02 * k);        // transición suave de un bioma a otro
+    // velocidad: sube despacio y se detiene en un tope, para que siempre sea cuestión de habilidad
+    s.speed = Math.min(bi ? 11.5 : 10.5, 5 + s.dist / 6000);
     const v = s.speed * k; s.dist += v;
-    const gravity = bi >= 5 ? 1.0 : .7;
-    s.vy += gravity * k; if (s.jumpHeld && s.vy < 0) s.vy -= .22 * k;
-    s.y = Math.min(GY - S, s.y + s.vy * k); if (s.y >= GY - S) s.y = GY - S, s.vy = 0;
+    s.vy += .7 * k; s.y = Math.min(GY - S, s.y + s.vy * k); if (s.y >= GY - S) s.vy = 0;
     s.next -= v;
     if (s.next <= 0) { // separación mínima = tiempo de salto + margen de reacción: siempre es posible
-      const type = BIOMES[s.biome].obstacle, r = Math.random(), n = type === "camel" ? 2 : r < .45 ? 1 : r < .85 ? 2 : 3, fl = type === "cactus" && n < 3 && Math.random() < .18;
-      s.obs.push({ x: W + 20, n, h: n * B, fl, type, w: type === "camel" ? B * 2 : B, projectile: type === "parched" ? 1 : 0 });
-      if (s.totems < MAXT && !s.tot.length && Math.random() < .05) s.tot.push({ x: W + 20 + rnd(90, 170), y: rnd(100, 130), w: 26, h: 26 });
-      if (s.coinsCollected < MAXCOINS && Math.random() < .35) s.coins.push({ x: W + 120, y: rnd(90, 160), w: 18, h: 18 });
+      const r = Math.random(), n = r < .45 ? 1 : r < .85 ? 2 : 3, fl = n < 3 && Math.random() < .18;
+      s.obs.push({ x: W + 20, n, h: n * B, fl });
+      if (s.totems < MAXT && !s.tot.length && Math.random() < .05) s.tot.push({ x: W + 20 + rnd(90, 170), y: GY - rnd(70, 100), w: 26, h: 26 });
       s.next = s.speed * 42 + rnd(60, 300) + (fl ? s.speed * 10 : 0);
     }
-    s.obs.forEach(o => { o.x -= v; if (o.projectile) o.arrow = (o.arrow || 0) - v * .9; }); s.tot.forEach(t => t.x -= v); s.coins.forEach(q => q.x -= v);
-    s.clouds.forEach(cl => { cl.x -= .4 * k; if (cl.x < -60) { cl.x = W + 20; cl.y = rnd(20, 90); } });
-    s.mesas.forEach(m => { m.x -= 1.2 * k; if (m.x + m.w < 0) { m.x = W + rnd(0, 100); m.w = rnd(120, 200); m.h = rnd(50, 95); } });
-    s.obs = s.obs.filter(o => o.x > -60); s.tot = s.tot.filter(t => t.x > -40); s.coins = s.coins.filter(q => q.x > -30);
+    s.obs.forEach(o => o.x -= v); s.tot.forEach(t => t.x -= v);
+    s.clouds.forEach(cl => { cl.x -= .4 * k; if (cl.x < -60) { cl.x = W + 20; cl.y = rnd(20, GY * .5); } });
+    s.obs = s.obs.filter(o => o.x > -30); s.tot = s.tot.filter(t => t.x > -40);
     const p = { x: 64, y: s.y + 4, w: S - 8, h: S - 8 };
     s.tot = s.tot.filter(t => { if (hit(p, t)) { s.totems = Math.min(MAXT, s.totems + 1); burst(t.x + 13, t.y + 13, ["#e8b923", "#2e9e4a", "#fff6c4"], 22); return false; } return true; });
-    s.coins = s.coins.filter(q => { if (hit(p, q)) { s.coinsCollected = Math.min(MAXCOINS, s.coinsCollected + 1); localStorage.setItem("hood-desert-coins", JSON.stringify({ day: new Date().toISOString().slice(0, 10), count: s.coinsCollected })); burst(q.x, q.y, ["#f7c52e", "#fff6c4"], 10); return false; } return true; });
     if (s.inv > 0) s.inv -= k; if (s.boost > 0) s.boost -= k; if (s.banner > 0) s.banner -= k;
     for (const o of s.obs) {
-      if (o.fl && hit(p, { x: o.x, y: GY - o.h - 16, w: B, h: 16 })) {
+      if (o.fl && hit(p, { x: o.x, y: GY - o.h - 16, w: B, h: 16 })) { // flor: impulso que te saca de ritmo, no mata
         o.fl = false; s.vy = -17; s.boost = 22; burst(o.x + 12, GY - o.h - 8, ["#d2708a", "#fcb0ad", "#fa8685"], 24); continue;
       }
-      const ow = o.w || B, oy = o.type === "cliff" ? GY : GY - o.h;
-      if (s.inv <= 0 && s.boost <= 0 && hit(p, { x: o.x + 2, y: oy, w: ow - 4, h: o.type === "cliff" ? 22 : o.h })) {
+      if (s.inv <= 0 && s.boost <= 0 && hit(p, { x: o.x + 2, y: GY - o.h, w: B - 4, h: o.h })) {
         if (s.totems > 0) { s.totems--; s.inv = 60; burst(80, s.y + 18, ["#e8b923", "#2e9e4a", "#fff6c4", "#ffffff"], 50); s.obs = s.obs.filter(q => q !== o); }
         else { st = "over"; burst(80, s.y + 18, ["#f7b41e", "#ff8a3d", "#fff"], 36); saveScore(Math.floor(s.dist / 10)); }
         break;
@@ -589,31 +849,25 @@ const Game = (() => {
     c.restore();
   }
   function draw() {
-    c.clearRect(0, 0, W, 240); c.imageSmoothingEnabled = false;
-    if (s.biome >= 3) { c.fillStyle = s.biome >= 5 ? "#191418" : "rgba(190,90,30,.25)"; s.mesas.forEach(m => { c.fillRect(m.x, GY - m.h, m.w, m.h); }); c.fillStyle = "rgba(220,120,50,.4)"; s.mesas.forEach(m => c.fillRect(m.x, GY - m.h, m.w, 4)); }
-    else { c.fillStyle = "rgba(247,180,30,.07)"; s.clouds.forEach(cl => c.fillRect(cl.x, cl.y, 56, 14)); }
-    const fl = IMG[s.biome >= 3 ? "arena-roja" : "arena"]; c.globalAlpha = .75;
-    for (let x = -(s.dist % 40); x < W; x += 40) { if (ok(fl)) c.drawImage(fl, x, GY, 40, 40); else { c.fillStyle = BIOMES[s.biome].ground; c.fillRect(x, GY, 40, 40); } }
-    c.globalAlpha = 1;
+    c.clearRect(0, 0, W, H); c.imageSmoothingEnabled = false;
+    drawBG();
     s.obs.forEach(o => {
-      for (let i = 0; i < o.n; i++) { c.fillStyle = o.type === "minecart" ? "#555" : o.type === "camel" ? "#c99b61" : o.type === "cliff" ? "#161316" : o.type === "husk" ? "#8a6b3b" : o.type === "parched" ? "#d6d1bc" : "#3f9b2a"; c.fillRect(o.x + (o.type === "camel" ? i * B : 0), GY - (i + 1) * B, B, B); }
-      if (o.type === "minecart") { c.fillStyle = "#a33"; c.fillRect(o.x, GY - B, B * 1.5, 5); }
-      if (o.type === "husk") { c.fillStyle = "#633"; c.fillRect(o.x + 5, GY - o.h - 12, 4, 12); }
-      if (o.type === "parched") { c.fillStyle = "#eee"; c.fillRect(o.x + 10, GY - o.h - 20, 3, 3); }
+      for (let i = 0; i < o.n; i++) { if (ok(IMG.cactus)) c.drawImage(IMG.cactus, o.x, GY - (i + 1) * B, B, B); else { c.fillStyle = "#3f9b2a"; c.fillRect(o.x, GY - (i + 1) * B, B, B); } }
       if (o.fl && ok(IMG.flor)) c.drawImage(IMG.flor, o.x, GY - o.h - B, B, B);
     });
-    s.coins.forEach(q => { c.fillStyle = "#f7c52e"; c.fillRect(q.x, q.y, 12, 12); c.fillStyle = "#fff0a0"; c.fillRect(q.x + 3, q.y + 3, 3, 3); });
     s.tot.forEach(t => { const y = t.y + Math.sin(s.dist / 15) * 3; if (ok(IMG.totem)) c.drawImage(IMG.totem, t.x, y, 26, 26); else { c.fillStyle = "#e8b923"; c.fillRect(t.x, y, 26, 26); } });
     if (st !== "over" && (s.inv <= 0 || Math.floor(s.inv / 4) % 2)) player();
     if (st === "over") { c.globalAlpha = .4; player(); c.globalAlpha = 1; }
     s.pts.forEach(q => { c.fillStyle = q.c; c.globalAlpha = Math.min(1, q.l / 20); c.fillRect(q.x, q.y, 4, 4); }); c.globalAlpha = 1;
-    c.fillStyle = "#f5ecd6"; c.font = "700 16px 'Noto Sans', sans-serif"; c.textAlign = "right"; c.fillText(String(Math.floor(s.dist / 10)).padStart(5, "0"), W - 16, 28);
+    c.shadowColor = "rgba(0,0,0,.6)"; c.shadowBlur = 6;
+    c.fillStyle = "#f5ecd6"; c.font = "700 16px 'Noto Sans', sans-serif"; c.textAlign = "right"; c.fillText(String(Math.floor(s.dist / 10)).padStart(5, "0"), W - 16 - 64 / SC, 28);
     for (let i = 0; i < s.totems; i++) if (ok(IMG.totem)) c.drawImage(IMG.totem, 14 + i * 26, 10, 22, 22);
     c.textAlign = "center"; c.fillStyle = "#f7b41e";
-    if (s.banner > 0) { c.globalAlpha = Math.min(1, s.banner / 40); c.font = "800 22px 'Noto Sans', sans-serif"; c.fillText(BIOMES[s.biome].name, W / 2, 70); c.globalAlpha = 1; }
+    if (s.banner > 0) { c.globalAlpha = Math.min(1, s.banner / 40); c.font = "800 22px 'Noto Sans', sans-serif"; c.fillText("Desierto meseta", W / 2, GY * .35); c.globalAlpha = 1; }
     c.font = "700 16px 'Noto Sans', sans-serif";
-    if (st === "idle") c.fillText("Pulsa para empezar", W / 2, 120);
-    if (st === "over") { c.font = "800 24px 'Noto Sans', sans-serif"; c.fillText("Fin del juego", W / 2, 100); c.font = "500 15px 'Noto Sans', sans-serif"; c.fillStyle = "#a89a70"; c.fillText(me() ? "Pulsa para reintentar" : "Inicia sesión para guardar tu puntaje", W / 2, 126); }
+    if (st === "idle") c.fillText("Pulsa espacio o toca para empezar", W / 2, GY * .55);
+    if (st === "over") { c.font = "800 24px 'Noto Sans', sans-serif"; c.fillText("Fin del juego", W / 2, GY * .48); c.font = "500 15px 'Noto Sans', sans-serif"; c.fillStyle = "#e6d9b0"; c.fillText(me() ? "Pulsa para reintentar" : "Inicia sesión para guardar tu puntaje", W / 2, GY * .58); }
+    c.shadowBlur = 0;
   }
   function loop(t) {
     const k = Math.min(2.5, (t - last) / 16.67 || 1); last = t;
@@ -621,17 +875,117 @@ const Game = (() => {
     aT += k / 60 * (st !== "run" ? ANIMS.idle.fps : aAir ? ANIMS.jump.fps * 1.5 : ANIMS.walk.fps * 1.5);   // andar y salto a 1,5×
     draw(); raf = requestAnimationFrame(loop);
   }
-  const key = e => { if (!$("#v-juego").hidden && ["Space", "ArrowUp"].includes(e.code) && modal.hidden) { e.preventDefault(); if (s) s.jumpHeld = true; jump(); } if (["ArrowDown", "ShiftLeft", "ShiftRight"].includes(e.code) && s && st === "run") s.vy += 1.8; };
-  const keyUp = e => { if (["Space", "ArrowUp"].includes(e.code)) releaseJump(); };
+  const key = e => { if (!$("#v-juego").hidden && $("#gamecard").classList.contains("open") && ["Space", "ArrowUp"].includes(e.code) && modal.hidden) { e.preventDefault(); jump(); } };
   addEventListener("keydown", key);
-  addEventListener("keyup", keyUp);
-  cv.addEventListener("pointerdown", e => { e.preventDefault(); if (s) s.jumpHeld = true; jump(); });
-  cv.addEventListener("pointerup", releaseJump);
-  cv.addEventListener("pointercancel", releaseJump);
+  const gcEl = $("#gamecard");                               // se puede tocar en cualquier punto de la pantalla
+  gcEl.addEventListener("pointerdown", e => { if (e.target.closest(".gc-close")) return; e.preventDefault(); jump(); });
+  addEventListener("resize", () => { if (gcEl.classList.contains("open")) fit(); });
   return {
-    show() { s = s || reset(); loadFace(); cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); },
+    show() { fit(); s = s || reset(); loadFace(); cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); },
+    start() { fit(); s = reset(); st = "run"; loadFace(); cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); },
     stop() { cancelAnimationFrame(raf); },
     refresh() { loadFace(); }
+  };
+})();
+
+/* ---------- Jugar: el personaje salta a la isla y el juego ocupa toda la ventana (sin pantalla completa del navegador) ---------- */
+const Play = (() => {
+  const gc = $("#gamecard");
+  const isOpen = () => gc.classList.contains("open");
+  function jumpTo(target, done) {
+    const src = document.querySelector("#rk-me canvas");
+    if (!src || !src.width) return done();
+    const a = src.getBoundingClientRect(), b = target.getBoundingClientRect();
+    const f = document.createElement("canvas"); f.width = src.width; f.height = src.height; f.getContext("2d").drawImage(src, 0, 0);
+    f.style.cssText = `position:fixed;left:${a.left}px;top:${a.top}px;width:${a.width}px;height:${a.height}px;z-index:300;pointer-events:none;image-rendering:pixelated;transform-origin:50% 100%`;
+    document.body.append(f); src.style.visibility = "hidden";
+    const ex = b.left + b.width / 2 - a.width / 2, ey = b.top + b.height * .4 - a.height, lift = Math.min(240, innerHeight * .3), T = 800, t0 = performance.now();
+    const step = now => {
+      const t = Math.min(1, (now - t0) / T), e = t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const x = (ex - a.left) * e, y = (ey - a.top) * e - Math.sin(Math.PI * t) * lift;
+      f.style.transform = `translate(${x}px,${y}px) scale(${1 - .4 * t}) rotate(${Math.sin(Math.PI * t) * -14}deg)`;
+      if (t < 1) requestAnimationFrame(step); else { f.remove(); src.style.visibility = ""; done(); }
+    };
+    requestAnimationFrame(step);
+  }
+  function open(w) {
+    gc.classList.add("open"); gc.setAttribute("aria-hidden", "false");
+    Game.start();
+  }
+  function close() {
+    if (!isOpen()) return;
+    gc.classList.remove("open"); gc.setAttribute("aria-hidden", "true"); Game.stop();
+  }
+  $("#gc-close").onclick = close;
+  addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+  return { jumpTo, open, close, isOpen };
+})();
+
+/* ---------- Arcade: isla grande + selector de mundos ---------- */
+const Arcade = (() => {
+  const N = WORLDS.length, mod = i => ((i % N) + N) % N;
+  const stage = $("#wc-stage"), bgs = $("#ar-bgs"), dots = $("#wc-dots"), mainEl = $("#ar-main"), tip = $("#ar-tip");
+  let cur = 0, sel = -1, lastWheel = 0, active = false, launching = false, sx = null;
+
+  const cards = WORLDS.map((w, i) => {
+    const el = document.createElement("article");
+    el.className = "wc-card"; el.dataset.i = i; el.dataset.w = w.id; el.style.setProperty("--acc", w.acc);
+    el.setAttribute("role", "option"); el.setAttribute("aria-label", w.name + (w.game ? " — " + w.game.name : " — Próximamente"));
+    el.innerHTML = `<img class="ico" src="${w.img}" alt="" draggable="false">`;
+    stage.append(el);
+    const bg = document.createElement("div"); bg.className = "ar-bg"; bg.style.backgroundImage = `url("${w.bg}")`; if (w.b) bg.style.setProperty("--b", w.b); bgs.append(bg);
+    const d = document.createElement("i"); d.setAttribute("role", "button"); d.setAttribute("aria-label", w.name); d.onclick = () => go(i); dots.append(d);
+    return { el, bg, d };
+  });
+
+  function apply(k, dir) {                                     // un mundo se ha elegido: fondo, título, juego y ranking
+    const prev = sel; sel = k; selWorld = k; const w = WORLDS[k], g = w.game;
+    cards.forEach((c, i) => {
+      c.bg.classList.toggle("on", i === k); c.d.classList.toggle("on", i === k);
+      c.el.classList.toggle("cur", i === k); c.el.setAttribute("aria-selected", i === k);
+      c.el.classList.remove("from-b", "from-t", "to-t", "to-b");
+      if (prev >= 0 && dir) { if (i === k) c.el.classList.add(dir > 0 ? "from-b" : "from-t"); else if (i === prev) c.el.classList.add(dir > 0 ? "to-t" : "to-b"); }
+    });
+    mainEl.style.setProperty("--acc", w.acc);
+    $("#ar-name").textContent = g ? g.name : w.name;
+    tip.textContent = g ? "Haz clic en la isla para jugar" : "Próximamente";
+    mainEl.classList.toggle("soon", !g);
+    mainEl.classList.remove("swap"); void mainEl.offsetWidth; mainEl.classList.add("swap");
+    renderRank();
+  }
+  function go(i) { const n = mod(i); if (n === cur && sel === n) return; const d = n === cur ? 0 : (mod(n - cur) <= N / 2 ? 1 : -1); cur = n; apply(n, d); }
+  const move = dir => go(cur + dir);
+
+  mainEl.addEventListener("wheel", e => {                      // la rueda sobre la isla cambia de mundo
+    const dy = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY; if (Math.abs(dy) < 6) return; e.preventDefault();
+    const now = performance.now(); if (now - lastWheel < 520) return; lastWheel = now; move(dy > 0 ? 1 : -1);
+  }, { passive: false });
+  stage.addEventListener("keydown", e => {
+    if (["ArrowUp", "ArrowLeft"].includes(e.key)) { e.preventDefault(); e.stopPropagation(); move(-1); }
+    else if (["ArrowDown", "ArrowRight"].includes(e.key)) { e.preventDefault(); e.stopPropagation(); move(1); }
+    else if (e.key === "Enter") { e.preventDefault(); launch(); }
+  });
+  stage.addEventListener("pointerdown", e => { if (!e.button) sx = { x: e.clientX, y: e.clientY, id: e.pointerId }; });
+  stage.addEventListener("pointerup", e => {
+    const s0 = sx; sx = null; if (!s0 || s0.id !== e.pointerId) return;
+    const dx = e.clientX - s0.x, dy = e.clientY - s0.y;
+    if (Math.abs(dy) > 50 && Math.abs(dy) > Math.abs(dx)) return move(dy < 0 ? 1 : -1);   // deslizar en vertical cambia de mundo
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && e.target.closest(".wc-card.cur")) launch();
+  });
+  stage.addEventListener("pointercancel", () => { sx = null; });
+
+  function launch() {                                          // clic en la isla: el personaje salta y arranca el juego
+    const w = WORLDS[cur], el = cards[cur].el;
+    if (!w.game) { el.classList.remove("nope"); void el.offsetWidth; el.classList.add("nope"); return; }
+    if (launching || Play.isOpen()) return; launching = true;
+    Play.jumpTo(el.querySelector(".ico") || el, () => { launching = false; Play.open(w); });
+  }
+
+  return {
+    enter() { active = true; bgs.classList.add("on"); sel = -1; apply(cur, 0); Mine.reset(); Mine.start(); },
+    leave() { active = false; bgs.classList.remove("on"); Play.close(); Game.stop(); Mine.stop(); },
+    refresh() { if (active && sel >= 0) { Mine.reset(); renderRank(); } },
+    playable: () => active && !!WORLDS[sel] && !!WORLDS[sel].game
   };
 })();
 
@@ -641,7 +995,7 @@ route();
 onAuthStateChanged(auth, async user => {
   if (signing) return; // signUp/logIn manejan su propio perfil
   await loadProfile(user);
-  ready = true; renderAuth(); Game.refresh();
+  ready = true; renderAuth(); Game.refresh(); Arcade.refresh();
   refreshView();
 });
 })();
