@@ -9,11 +9,11 @@ if (nav) {
   pill.className = "liq-pill"; pill.setAttribute("aria-hidden", "true"); pill.style.opacity = "0";
   nav.prepend(pill); nav.classList.add("liq");
 
-  const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+  /* Esta animación NO se apaga con "reducir movimiento" del sistema (igual que el carrusel de proyectos): el selector siempre se desliza. */
   const links = () => [...nav.querySelectorAll("a")];
-  /* resorte de la posición: algo subamortiguado (rebote); resorte del ancho: amortiguación crítica (sin rebote) */
-  const KL = 300, CL = 2 * 0.62 * Math.sqrt(KL), KW = 300, CW = 2 * Math.sqrt(KW);
-  const MAX_OVER = 6;                                     // px máximos que puede pasarse del destino (que no se salga de la cápsula)
+  /* resorte de la posición: rápido y con un rebote corto al llegar (estilo menú de consola); resorte del ancho: amortiguación crítica (sin rebote) */
+  const KL = 460, CL = 2 * 0.66 * Math.sqrt(KL), KW = 460, CW = 2 * Math.sqrt(KW);
+  const MAX_OVER = 6;                                   // px máximos que puede pasarse del destino (que no se salga de la cápsula)
   const MAX_MS = 1400;                                    // seguro anti-atorón: pasado este tiempo, se coloca en su sitio sí o sí
 
   let cur = null, raf = 0, last = 0, t0 = 0, dir = 1, colored = null;
@@ -58,7 +58,7 @@ if (nav) {
     const b = box(on);
     T.l = b.l; T.w = b.w;
     pill.style.top = b.t + "px"; pill.style.height = b.h + "px";
-    if (!cur || !animate || reduce.matches || (on === cur && !raf)) {   // primera vez, cambio de tamaño, mismo botón o "reducir movimiento": sin animación
+    if (!cur || !animate || (on === cur && !raf)) {     // primera vez, cambio de tamaño o mismo botón: sin animación
       snap(); pill.style.opacity = "1"; cur = on; return;
     }
     cur = on;

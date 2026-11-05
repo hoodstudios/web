@@ -197,3 +197,13 @@ a.me:hover span{color:var(--y)}
 .nav a{position:relative;z-index:1}
 .nav.liq a.on{background:transparent;color:#000}
 .liq-pill{position:absolute;z-index:0;left:0;top:0;width:0;height:0;border-radius:999px;pointer-events:none;background:var(--y);will-change:transform,width}
+
+/* Con "reducir movimiento" el sitio apaga todas las transiciones (regla de arriba). La cabecera se queda con las suyas, como el carrusel de proyectos. */
+@media(prefers-reduced-motion:reduce){
+  .logo img{transition:transform .6s var(--spring)!important}
+  .logo:active img{transition:transform .12s ease-out!important}
+  .nav a{transition:background .3s var(--ease),color .3s,transform .6s var(--spring)!important}
+  .nav a:active{transition:background .3s var(--ease),color .3s,transform .12s ease-out!important}
+  .top .btn{transition:color .35s var(--ease),transform .6s var(--spring),box-shadow .35s var(--ease)!important}
+  .top .btn:active{transition:color .35s var(--ease),transform .12s ease-out,box-shadow .35s var(--ease)!important}
+}
