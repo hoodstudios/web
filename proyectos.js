@@ -27,8 +27,9 @@ const sec = $("#v-proyectos"), stage = $("#pj-stage"), bgs = $("#pj-bgs"), dots 
 const prevB = $("#pj-prev"), nextB = $("#pj-next");
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const N = PROYECTOS.length;
-let cur = 0, pos = 0, openId = null, lastWheel = 0;
+const N = PROYECTOS.length, mod = i => ((i % N) + N) % N;
+let pos = 0, target = 0, openId = null, lastWheel = 0;           // pos = posición (decimal) del carrusel; target = proyecto de destino (entero, sin acotar: el carrusel es infinito)
+const cur = () => mod(Math.round(target));
 
 /* ---------- Construcción ---------- */
 const cards = PROYECTOS.map((p, i) => {
@@ -45,15 +46,16 @@ const cards = PROYECTOS.map((p, i) => {
   return { el, bg, d };
 });
 
-/* ---------- Disposición 3D (continua: sirve igual para el arrastre) ---------- */
+/* ---------- Disposición 3D (continua y circular: sirve igual para la animación y para el arrastre) ---------- */
 function layout() {
-  const near = Math.round(pos);
+  const near = mod(Math.round(pos));
   cards.forEach((c, i) => {
-    const d = i - pos, a = Math.abs(d), s = Math.sign(d);
+    let d = i - pos; d -= N * Math.round(d / N);                 // distancia más corta sobre el círculo
+    const a = Math.abs(d), s = Math.sign(d);
     const x = s * (74 * Math.min(a, 1) + 44 * Math.max(0, Math.min(a, 2) - 1));          // % del ancho de la tarjeta
     const z = -Math.min(a, 2) * 210, ry = clamp(-d * 34, -50, 50);
     const sc = 1 - .1 * Math.min(a, 1) - .06 * Math.max(0, Math.min(a, 2) - 1);
-    const t = Math.min(a, 1), op = a < 1.6 ? 1 : Math.max(0, 1 - (a - 1.6) * 1.6);
+    const t = Math.min(a, 1), op = a < 1.2 ? 1 : Math.max(0, 1 - (a - 1.2) / .6);
     c.el.style.transform = `translateX(${x}%) translateZ(${z}px) rotateY(${ry}deg) scale(${sc})`;
     c.el.style.filter = a < .02 ? "none" : `blur(${(t * 5).toFixed(2)}px) brightness(${(1 - t * .5).toFixed(2)})`;
     c.el.style.opacity = op;
@@ -64,19 +66,37 @@ function layout() {
   });
 }
 function sync() {
-  cards.forEach((c, i) => { c.bg.classList.toggle("on", i === cur); c.d.classList.toggle("on", i === cur); });
-  prevB.disabled = cur <= 0; nextB.disabled = cur >= N - 1;
-  sec.style.setProperty("--cur-acc", PROYECTOS[cur].acc);
+  const k = cur();
+  cards.forEach((c, i) => { c.bg.classList.toggle("on", i === k); c.d.classList.toggle("on", i === k); });
 }
-function go(i) { cur = clamp(i, 0, N - 1); pos = cur; layout(); sync(); }
-prevB.onclick = () => go(cur - 1);
-nextB.onclick = () => go(cur + 1);
+
+/* ---------- Animación propia (no depende de las transiciones CSS, así es suave en cualquier navegador) ---------- */
+const DUR = 700, ease = x => 1 - Math.pow(1 - x, 3.4);
+let raf = 0, from = 0, t0 = 0;
+function tween(to) {
+  target = to; from = pos; t0 = performance.now(); sync();
+  if (!raf) raf = requestAnimationFrame(step);
+}
+function step(now) {
+  const x = Math.min(1, (now - t0) / DUR);
+  pos = from + (target - from) * ease(x); layout();
+  if (x < 1) raf = requestAnimationFrame(step); else { raf = 0; pos = target; layout(); }
+}
+function stop() { if (raf) { cancelAnimationFrame(raf); raf = 0; } }
+function go(i) {                                                  // ir a un proyecto por el camino más corto
+  const base = Math.round(target); let dlt = mod(i - mod(base) + N / 2) - N / 2;
+  tween(base + dlt);
+}
+const move = dir => tween(Math.round(target) + dir);
+prevB.onclick = () => move(-1);
+nextB.onclick = () => move(1);
 
 /* ---------- Arrastre con el ratón / el dedo ---------- */
 let drag = null;
 stage.addEventListener("pointerdown", e => {
   if (e.button || openId) return;
-  drag = { id: e.pointerId, x0: e.clientX, p0: cur, moved: false, card: e.target.closest(".pj-card"), t: performance.now(), x: e.clientX, v: 0 };
+  stop();
+  drag = { id: e.pointerId, x0: e.clientX, p0: pos, moved: false, card: e.target.closest(".pj-card"), t: performance.now(), x: e.clientX, v: 0 };
 });
 stage.addEventListener("pointermove", e => {
   if (!drag || e.pointerId !== drag.id) return;
@@ -84,28 +104,30 @@ stage.addEventListener("pointermove", e => {
   if (!drag.moved && Math.abs(dx) > 8) { drag.moved = true; stage.classList.add("drag"); try { stage.setPointerCapture(drag.id); } catch (_) {} }
   if (!drag.moved) return;
   const now = performance.now(); drag.v = (e.clientX - drag.x) / Math.max(1, now - drag.t); drag.x = e.clientX; drag.t = now;
-  pos = clamp(drag.p0 - dx / step, -.35, N - 1 + .35); layout();
+  pos = drag.p0 - dx / step; layout();
 });
 const endDrag = e => {
   if (!drag || e.pointerId !== drag.id) return;
   const d = drag; drag = null; stage.classList.remove("drag");
   if (!d.moved) {                                           // un toque: la tarjeta del centro se abre; las de los lados se acercan
-    if (d.card) { const i = +d.card.dataset.i; if (i === cur) open(i); else go(i); }
+    if (d.card) { const i = +d.card.dataset.i; if (i === cur()) open(i); else go(i); }
     return;
   }
-  const dx = e.clientX - d.x0, step = (cards[0].el.offsetWidth || 600) * .74;
+  const dx = e.clientX - d.x0, step = (cards[0].el.offsetWidth || 600) * .74, base = Math.round(d.p0);
   let t = Math.round(pos - d.v * 160 / step);
-  if (t === d.p0 && Math.abs(dx) > 40) t = d.p0 + (dx < 0 ? 1 : -1);
-  go(t);
+  if (t === base && Math.abs(dx) > 40) t = base + (dx < 0 ? 1 : -1);
+  tween(t);
 };
 stage.addEventListener("pointerup", endDrag);
-stage.addEventListener("pointercancel", e => { if (drag && e.pointerId === drag.id) { drag = null; stage.classList.remove("drag"); go(cur); } });
+stage.addEventListener("pointercancel", e => { if (drag && e.pointerId === drag.id) { drag = null; stage.classList.remove("drag"); tween(Math.round(pos)); } });
 
 /* ---------- Ventana del proyecto ---------- */
+const setHash = id => { if (/^#proyectos/.test(location.hash)) history.replaceState(null, "", "#proyectos" + (id ? "/" + id : "")); };
 function open(i) {
   const p = PROYECTOS[i]; if (p.soon || openId) return;
-  openId = p.id; go(i);
-  modal.hidden = false; modal.classList.remove("out");
+  openId = p.id; go(i); setHash(p.id);
+  modal.getAnimations().forEach(a => a.cancel());
+  modal.hidden = false;
   modal.style.setProperty("--acc", p.acc); modal.style.setProperty("--wbg", p.wbg);
   modal.innerHTML = `<h3 class="pj-title">${esc(p.name)}</h3>
     <div class="pj-tabs" role="tablist" aria-label="Secciones de ${esc(p.name)}">${p.tabs.map((t, k) => `<button type="button" role="tab" id="pjt${k}" aria-selected="${k === 0}" aria-controls="pjp" data-k="${k}">${esc(t.t)}</button>`).join("")}</div>
@@ -122,10 +144,11 @@ function open(i) {
   modal._tabs = tabs; modal._show = show; show(0);
   sec.classList.add("open"); tabs[0].focus({ preventScroll: true });
 }
-function close() {
+function close() {                                          // cierre inmediato: sin esperas ni fundidos
   if (!openId) return;
-  openId = null; modal.classList.add("out"); sec.classList.remove("open");
-  setTimeout(() => { if (!openId) { modal.hidden = true; modal.innerHTML = ""; } }, 300);
+  openId = null; sec.classList.remove("open"); setHash("");
+  modal.getAnimations().forEach(a => a.cancel());
+  modal.hidden = true; modal.innerHTML = "";
   stage.focus({ preventScroll: true });
 }
 modal.addEventListener("pointerdown", e => { if (e.target === modal) close(); });
@@ -142,22 +165,35 @@ addEventListener("keydown", e => {
     }
     return;
   }
-  if (e.key === "ArrowLeft") { e.preventDefault(); go(cur - 1); }
-  else if (e.key === "ArrowRight") { e.preventDefault(); go(cur + 1); }
-  else if ((e.key === "Enter" || e.key === " ") && !/^(BUTTON|A)$/.test(e.target.tagName)) { e.preventDefault(); open(cur); }
+  if (e.key === "ArrowLeft") { e.preventDefault(); move(-1); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); move(1); }
+  else if ((e.key === "Enter" || e.key === " ") && !/^(BUTTON|A)$/.test(e.target.tagName)) { e.preventDefault(); open(cur()); }
 });
 sec.addEventListener("wheel", e => {
   if (openId) return;
   e.preventDefault();
   const now = performance.now(), d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
   if (now - lastWheel < 450 || Math.abs(d) < 8) return;
-  lastWheel = now; go(cur + (d > 0 ? 1 : -1));
+  lastWheel = now; move(d > 0 ? 1 : -1);
 }, { passive: false });
 
-/* ---------- Al entrar en la vista: cerrar ventana y repetir la animación de entrada ---------- */
+/* ---------- Enlaces directos: #proyectos/hardhood abre la ventana de ese proyecto ---------- */
+function applyHash() {
+  if (sec.hidden) return;
+  const [h, a = ""] = location.hash.slice(1).split("/");
+  if (h !== "proyectos") return;
+  let id = ""; try { id = decodeURIComponent(a); } catch (_) {}
+  const i = PROYECTOS.findIndex(p => p.id === id && !p.soon);
+  if (i >= 0) { if (openId !== PROYECTOS[i].id) { openId = null; open(i); } }
+  else if (openId) close();
+}
+addEventListener("hashchange", () => setTimeout(applyHash, 0));
+
+/* ---------- Al entrar en la vista: animación de entrada; al salir: cerrar la ventana ---------- */
 new MutationObserver(() => {
   if (sec.hidden) { if (openId) { openId = null; sec.classList.remove("open"); modal.hidden = true; modal.innerHTML = ""; } return; }
   stage.classList.remove("enter"); void stage.offsetWidth; stage.classList.add("enter");
+  applyHash();
 }).observe(sec, { attributes: true, attributeFilter: ["hidden"] });
 
-go(0);
+layout(); sync(); applyHash();

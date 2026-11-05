@@ -174,7 +174,17 @@ a.me:hover span{color:var(--y)}
 /* ---- v5: controles de galería + splash ---- */
 .galctl{justify-content:flex-start}
 .gnav{display:inline-flex;align-items:center;gap:.5rem}
-.splash{margin:0 0 0 .4rem;max-width:min(46ch,100%);font-family:var(--mc);font-size:1.05rem;line-height:1.2;color:#ffe94a;text-shadow:2px 2px 0 #3f3a0c,0 0 14px rgba(255,233,74,.35);transform-origin:left center;transform:rotate(-3deg);animation:splashpulse 1.1s ease-in-out infinite alternate;pointer-events:none}
-@keyframes splashpulse{from{transform:rotate(-3deg) scale(1)}to{transform:rotate(-3deg) scale(1.07)}}
+.splash{margin:0 0 0 .4rem;max-width:min(46ch,100%);font-family:var(--mc);font-size:1.05rem;line-height:1.2;color:#ffe94a;text-shadow:2px 2px 0 #3f3a0c,0 0 14px rgba(255,233,74,.35);transform-origin:left center;transform:rotate(-5deg);animation:splashpulse .5s ease-in-out infinite;pointer-events:none}
+/* como el splash de Minecraft Java: late en bucle (|seno|) */
+@keyframes splashpulse{0%,100%{transform:rotate(-5deg) scale(1.1)}50%{transform:rotate(-5deg) scale(1)}}
 @media(max-width:860px){.splash{flex-basis:100%;margin:.2rem 0 0;font-size:.95rem}.btn.proj{margin-top:.2rem}}
-@media(prefers-reduced-motion:reduce){.splash{animation:none!important}}
+
+
+/* ---- Barra superior: selector "liquid glass" (la píldora amarilla se desliza y se estira entre botones) ---- */
+.nav{position:relative}
+.nav a{position:relative;z-index:1}
+.nav.liq a.on{background:transparent;color:#000}
+.liq-pill{position:absolute;z-index:0;left:0;top:0;width:0;height:0;border-radius:999px;pointer-events:none;
+  background:linear-gradient(180deg,#ffd562 0%,#f7b41e 52%,#e69f0d 100%);
+  box-shadow:inset 0 1.5px 0 rgba(255,255,255,.7),inset 0 -2px 3px rgba(120,70,0,.3),0 6px 16px -6px rgba(247,180,30,.75)}
+.liq-pill::after{content:"";position:absolute;left:14%;right:14%;top:2px;height:36%;border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,0))}
