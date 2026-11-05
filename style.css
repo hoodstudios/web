@@ -184,7 +184,4 @@ a.me:hover span{color:var(--y)}
 .nav{position:relative}
 .nav a{position:relative;z-index:1}
 .nav.liq a.on{background:transparent;color:#000}
-.liq-pill{position:absolute;z-index:0;left:0;top:0;width:0;height:0;border-radius:999px;pointer-events:none;
-  background:linear-gradient(180deg,#ffd562 0%,#f7b41e 52%,#e69f0d 100%);
-  box-shadow:inset 0 1.5px 0 rgba(255,255,255,.7),inset 0 -2px 3px rgba(120,70,0,.3),0 6px 16px -6px rgba(247,180,30,.75)}
-.liq-pill::after{content:"";position:absolute;left:14%;right:14%;top:2px;height:36%;border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,0))}
+.liq-pill{position:absolute;z-index:0;left:0;top:0;width:0;height:0;border-radius:999px;pointer-events:none;background:var(--y)}

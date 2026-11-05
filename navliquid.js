@@ -1,6 +1,5 @@
 /* navliquid.js — Selector "liquid glass" de la barra superior.
- * Una píldora amarilla (sólida) se desliza entre el botón anterior y el nuevo: se estira hasta cubrir ambos y se recoge
- * con un pequeño rebote. Usa la Web Animations API, así que no depende de las transiciones CSS. */
+ * Una píldora amarilla (sólida) se desliza entre el botón anterior y el nuevo. Usa la Web Animations API, así que no depende de las transiciones CSS. */
 const nav = document.querySelector(".nav");
 if (nav && nav.animate) {
   const pill = document.createElement("span");
@@ -21,19 +20,20 @@ if (nav && nav.animate) {
     const cs = getComputedStyle(pill), a = { l: parseFloat(cs.left) || 0, w: parseFloat(cs.width) || 0 };
     if (anim) anim.cancel();
     const prev = cur; cur = on;
-    const l0 = Math.min(a.l, b.l), r1 = Math.max(a.l + a.w, b.l + b.w);
     set(b);
-    const px = n => n + "px", ez = "cubic-bezier(.4,0,.2,1)";
+    const px = n => n + "px", ez = "cubic-bezier(.45,0,.2,1)";
+    // Solo se desliza: se estira como mucho unos píxeles a mitad del trayecto, sin importar la distancia
+    const dir = Math.sign(b.l - a.l) || 1, ext = Math.min(10, Math.abs(b.l - a.l) * .06);
+    const mid = { l: (a.l + b.l) / 2 - (dir < 0 ? ext : 0), w: (a.w + b.w) / 2 + ext };
     anim = pill.animate([
-      { left: px(a.l), width: px(a.w), transform: "scale(1,1)", easing: ez },
-      { left: px(l0), width: px(r1 - l0), transform: "scale(1,.84)", offset: .42, easing: ez },
-      { left: px(b.l), width: px(b.w), transform: "scale(1.06,.97)", offset: .82, easing: ez },
-      { left: px(b.l), width: px(b.w), transform: "scale(1,1)" }
-    ], { duration: 600, easing: "linear" });
+      { left: px(a.l), width: px(a.w), easing: ez },
+      { left: px(mid.l), width: px(mid.w), offset: .5, easing: ez },
+      { left: px(b.l), width: px(b.w) }
+    ], { duration: 420, easing: "linear" });
     anim.onfinish = anim.oncancel = () => { anim = null; };
     // el texto cambia de color justo cuando la píldora pasa por debajo (a mitad del movimiento)
     prev.style.color = "#000"; on.style.color = "var(--t)";
-    setTimeout(() => { prev.style.color = ""; on.style.color = ""; }, 190);
+    setTimeout(() => { prev.style.color = ""; on.style.color = ""; }, 150);
   }
   new MutationObserver(() => update(true)).observe(nav, { subtree: true, attributes: true, attributeFilter: ["class"] });
   const refit = () => update(false);
