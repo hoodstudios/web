@@ -3,23 +3,19 @@
  * EVENTOS: viven en Firestore, colección "events". Cada documento: { name, date: "AAAA-MM-DD", start: "HH:MM", end: "HH:MM" | "", color: "#rrggbb" }.
  *   Las horas se escriben en HORA DE PERÚ (BASE_OFFSET) y de ahí se convierten a los demás países.
  *
- * ADMIN: es quien tenga un documento en la colección "admins" con su UID como id (se crea a mano en la consola de Firebase:
- *   admins/<uid del usuario>, con cualquier campo). Reglas de Firestore recomendadas (añádelas a las que ya tienes):
+ * ADMIN: la cuenta HOODSTUDIO (correo interno hoodstudio@hoodstudio.app, ver ADMIN_EMAILS). Para que Firestore le deje escribir,
+ *   pega estas reglas en Firebase > Firestore Database > Reglas (junto a las que ya tienes):
  *
  *   match /events/{id} {
  *     allow read: if true;
- *     allow write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
- *   }
- *   match /admins/{uid} {
- *     allow read: if request.auth != null && request.auth.uid == uid;
- *     allow write: if false;
+ *     allow write: if request.auth != null && request.auth.token.email == "hoodstudio@hoodstudio.app";
  *   }
  *
  * PROYECTOS: las fechas de inicio/fin salen de la lista PROYECTOS de proyectos.js (campos start y end).
  */
 import { getApps, getApp, initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { getFirestore, collection, getDocs, getDoc, doc, addDoc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import { getFirestore, collection, getDocs, doc, addDoc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { PROYECTOS } from "./proyectos.js";
 
 const firebaseConfig = {
@@ -34,9 +30,10 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app), db = getFirestore(app);
 
 /* ---------- Configuración ---------- */
-const BASE_OFFSET = 5, BASE_LABEL = "hora de Perú";            // Perú = UTC−5, sin horario de verano
+const BASE_OFFSET = 6, BASE_LABEL = "hora de CDMX";              // México (CDMX) = UTC−6, sin horario de verano: es la hora por defecto de los eventos
+const ADMIN_EMAILS = ["hoodstudio@hoodstudio.app"];             // cuentas que pueden añadir/quitar eventos (el correo interno es nombre@hoodstudio.app)
 const PAISES = [                                                 // países que se muestran en la carta de la izquierda
-  { n: "México", tz: "America/Mexico_City" },
+  { n: "México (CDMX)", tz: "America/Mexico_City", def: true },
   { n: "Perú", tz: "America/Lima" },
   { n: "Colombia", tz: "America/Bogota" },
   { n: "Chile", tz: "America/Santiago" },
@@ -112,8 +109,8 @@ function showTip(k) {
   if (!evs.length) return hideTip();
   clearTimeout(tipTimer);
   tip.className = "cal-tip on";
-  tip.innerHTML = evs.slice(0, 3).map(e => `<div class="ev" style="--c:${okColor(e.color)}"><span class="bar"></span><div class="row"><b>${esc(e.name)}</b><span class="t">${esc(rango(e))} · ${BASE_LABEL}</span></div></div>`).join("")
-    + (evs.length > 3 ? `<div class="more">+${evs.length - 3} más ese día</div>` : "");
+  tip.innerHTML = evs.slice(0, 2).map(e => `<div class="ev" style="--c:${okColor(e.color)}"><span class="bar"></span><div class="row"><b>${esc(e.name)}</b><span class="t">${esc(rango(e))} · ${BASE_LABEL}</span></div></div>`).join("")
+    + (evs.length > 2 ? `<div class="more">+${evs.length - 2} más ese día</div>` : "");
 }
 grid.addEventListener("pointerover", e => { const b = e.target.closest(".d"); if (b) showTip(b.dataset.d); });
 grid.addEventListener("pointerleave", () => { tipTimer = setTimeout(hideTip, 120); });
@@ -140,7 +137,7 @@ function renderLeft() {
       + PAISES.map(p => {
         const dd = diaNum(diaTz(p.tz).format(ini)) - diaNum(e.date);
         const h = hora(p.tz).format(ini) + (fin ? " – " + hora(p.tz).format(fin) : "");
-        return `<li><span>${p.n}</span><b>${h}${dd ? `<small>${dd > 0 ? "+" : "−"}${Math.abs(dd)} día</small>` : ""}</b></li>`;
+        return `<li${p.def ? ' class="def"' : ""}><span>${p.n}</span><b>${h}${dd ? `<small>${dd > 0 ? "+" : "−"}${Math.abs(dd)} día</small>` : ""}</b></li>`;
       }).join("") + `</ul>`;
   }
   leftIn.innerHTML = html;
@@ -195,7 +192,7 @@ function refresh() { render(); renderLeft(); renderRight(); }
 /* ---------- Admin ---------- */
 onAuthStateChanged(auth, async user => {
   isAdmin = false;
-  if (user) { try { isAdmin = (await getDoc(doc(db, "admins", user.uid))).exists(); } catch (_) {} }
+  isAdmin = !!user && ADMIN_EMAILS.includes((user.email || "").toLowerCase());
   calEl.classList.toggle("admin", isAdmin);
   if (!isAdmin) closeEditor();
   hideTip();
@@ -251,7 +248,7 @@ edHost.addEventListener("submit", async e => {
   } catch (err) { return drawEditor(errMsg(err)); }
   editing = null; chosen = COLORES[0]; drawEditor(); refresh();
 });
-const errMsg = err => err && err.code === "permission-denied" ? "Firestore rechazó el cambio: revisa que tu UID esté en la colección «admins» y las reglas." : "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo.";
+const errMsg = err => err && err.code === "permission-denied" ? "Firestore rechazó el cambio: revisa las reglas de Firestore para la cuenta Admin." : "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo.";
 addEventListener("keydown", e => {
   if (sec.hidden) return;
   if (e.key === "Escape" && !edHost.hidden) { closeEditor(); return; }
