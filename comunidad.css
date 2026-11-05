@@ -78,6 +78,14 @@
 .plist>.prow{flex:none}
 .plist{display:flex;flex-direction:column;gap:.6rem;padding:.3rem 1.4rem .3rem 0}   /* el margen derecho deja sitio a la fila que "sobresale" */
 .plist .empty{padding:2rem 0}
+body.plfix{overflow:hidden}
+body.plfix .foot{display:none}
+body.plfix main{padding-bottom:0}
+#v-jugadores .plwrap{display:flex;flex-direction:column;height:calc(100svh - 11rem)}   /* JS ajusta la altura exacta */
+#v-jugadores .plist{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:.6rem 1.4rem .6rem 0;
+  scrollbar-width:thin;scrollbar-color:rgba(247,180,30,.5) transparent}
+#v-jugadores .plist::-webkit-scrollbar{width:6px}
+#v-jugadores .plist::-webkit-scrollbar-thumb{background:rgba(247,180,30,.5);border-radius:6px}
 
 /* filtro */
 .flt{position:relative}
@@ -124,7 +132,7 @@
   .plhead{flex-wrap:wrap}
 }
 @media(hover:none){.prow:hover{transform:none;box-shadow:none}}
-@media(prefers-reduced-motion:reduce){.prow,.ar-row,.ar-bg,.wc-card .ico{animation:none!important}}
+@media(prefers-reduced-motion:reduce){.ar-bg,.wc-card.cur .ico{animation:none!important}}
 
 
 /* ============ v7: arcade como portada de Comunidad ============ */
@@ -134,9 +142,8 @@
 .gamecard{display:none;position:fixed;inset:0;z-index:250;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:0;border:0;border-radius:0;background:#000;backdrop-filter:none;box-shadow:none}
 .gamecard.open{display:flex;animation:gcIn .5s var(--ease);touch-action:none;cursor:pointer}
 @keyframes gcIn{from{opacity:0;transform:scale(1.05)}}
-.gc-bg{position:absolute;inset:0;background:center/cover no-repeat;filter:none;transform:none}
-.gc-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.25),transparent 30%)}
-.gamecard #cv{position:absolute;inset:0;width:100%;height:100%;max-width:none;border-radius:0;image-rendering:pixelated;background:transparent;touch-action:none;outline:none}
+.gc-bg{display:none}   /* el fondo del juego ahora es dinámico y se dibuja en el canvas */
+.gamecard #cv{position:absolute;inset:0;width:100%;height:100%;max-width:none;border-radius:0;image-rendering:pixelated;background:#000;touch-action:none;outline:none}
 .gamecard .small{position:absolute;left:0;right:0;bottom:1.2rem;margin:0;padding:0 1rem;text-align:center;color:#f5ecd6;text-shadow:0 2px 10px #000,0 0 4px #000;pointer-events:none}
 .gc-close{position:absolute;cursor:pointer;top:1rem;right:1rem;z-index:2;width:44px;height:44px;border:1px solid rgba(247,180,30,.5);border-radius:12px;background:rgba(0,0,0,.55);color:var(--y);font-size:1.1rem;cursor:pointer;transition:background .3s,color .3s,transform .3s}
 .gc-close:hover{background:var(--y);color:#000;transform:rotate(90deg)}
@@ -151,7 +158,7 @@
 @keyframes arDrift{from{transform:scale(1.02) translate(0,0)}to{transform:scale(1.08) translate(-1%,.6%)}}
 .ar-bgs::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.55),transparent 18%,transparent 72%,rgba(0,0,0,.4))}
 
-.arcade{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,360px);gap:2rem;align-items:center;min-height:calc(100svh - 14rem)}
+.arcade{display:grid;grid-template-columns:minmax(0,1fr) minmax(330px,400px);gap:2rem;align-items:center;min-height:calc(100svh - 14rem)}
 
 /* isla + título */
 .ar-main{--isl:min(100%,520px,calc(100svh - 24rem));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.4rem;min-width:0}
@@ -189,24 +196,21 @@
   background:linear-gradient(180deg,rgba(62,42,10,.92),rgba(10,8,4,.94) 140px,rgba(8,7,3,.95));
   border:1px solid rgba(247,180,30,.14);border-radius:0;box-shadow:0 30px 70px -30px rgba(0,0,0,.9);backdrop-filter:blur(8px)}
 .rk-head{margin:0;padding:1.15rem 1.1rem .8rem;font:400 1rem var(--mc);font-family:"Silkscreen",var(--mc);letter-spacing:.18em;text-transform:uppercase;color:var(--t)}
-.rk-scroll{flex:1 1 auto;min-height:0;max-height:calc(46px * 10);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
-  scrollbar-width:thin;scrollbar-color:rgba(247,180,30,.5) transparent;padding:0 .35rem 0 0}
+.rk-scroll{flex:1 1 auto;min-height:0;max-height:calc(70px * 7);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
+  scrollbar-width:thin;scrollbar-color:rgba(247,180,30,.5) transparent;padding:.5rem .9rem .5rem .6rem;display:flex;flex-direction:column;gap:.45rem}
 .rk-scroll::-webkit-scrollbar{width:5px}
 .rk-scroll::-webkit-scrollbar-thumb{background:rgba(247,180,30,.5);border-radius:5px}
 .rk-scroll .empty{padding:2rem 1.1rem;margin:0;color:var(--m)}
-.ar-row{display:grid;grid-template-columns:2.2rem 30px minmax(0,1fr) auto;align-items:center;gap:0 .75rem;height:46px;padding:0 1.1rem 0 1.1rem;
-  color:var(--t);text-decoration:none;border-bottom:1px solid rgba(247,180,30,.14);transition:background .3s,padding .4s var(--ease);
-  animation:rowIn .5s var(--ease) backwards;animation-delay:calc(var(--i,0) * 30ms)}
-.ar-row .n{font:400 .9rem var(--mc);font-family:"Silkscreen",var(--mc);color:#b59b5c;text-align:left}
-.ar-row.t1 .n{color:var(--y)}.ar-row.t2 .n{color:#fff}.ar-row.t3 .n{color:#d9a35e}
-.ar-row .hd{display:block;width:30px;height:30px;background:rgba(255,255,255,.08)}
-.ar-row canvas{display:block;width:100%;height:100%;image-rendering:pixelated;opacity:0;transition:opacity .4s}
-.ar-row canvas.ready{opacity:1}
-.ar-row .nm{font:700 .98rem/1.2 "Noto Sans",system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ar-row .v{font:800 .98rem "Noto Sans",system-ui,sans-serif;font-variant-numeric:tabular-nums}
-.ar-row:hover,.ar-row:focus-visible{background:rgba(247,180,30,.1);outline:none}
-.ar-row:hover .nm{color:var(--y)}
-.ar-row.mine{background:rgba(247,180,30,.08);box-shadow:inset 3px 0 0 var(--y)}
+/* filas del ranking = filas de Jugadores (.prow) en versión compacta */
+.rk-scroll>.prow{flex:none}
+.rk-scroll .prow.sm{height:62px;gap:0 .7rem;padding-right:.8rem}
+.rk-scroll .prow.sm .plate{width:122px;padding:0 1.2rem 0 .2rem;clip-path:polygon(0 0,100% 0,calc(100% - 18px) 100%,0 100%)}
+.rk-scroll .prow.sm .pos{width:38px;font-size:1.7rem}
+.rk-scroll .prow.sm .pos[data-l="3"]{font-size:1.2rem}
+.rk-scroll .prow.sm .pnm b{font-size:1rem}
+.rk-scroll .prow.sm .pval{font-size:1.05rem}
+.rk-scroll .prow.sm .pval small{margin-top:.15rem;font-size:.68rem}
+.rk-scroll .prow.sm:hover,.rk-scroll .prow.sm:focus-visible{transform:translateX(5px) scale(1.012)}
 
 /* récord: fijo bajo la tabla, con tu personaje */
 .rk-me{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0 .6rem;min-height:92px;padding:.6rem 1rem .6rem 1.1rem;
@@ -241,18 +245,20 @@
 .subnav{position:fixed;left:1.25rem;top:50%;z-index:60;display:flex;flex-direction:column;gap:.9rem;width:auto;margin:0;padding:0;border:0;border-radius:0;background:none;font-size:0;
   --i:0;opacity:0;visibility:hidden;transform:translateY(-50%) translateX(-16px);transition:opacity .45s var(--ease),transform .55s var(--ease),visibility 0s .45s}
 .subnav.show{opacity:1;visibility:visible;transform:translateY(-50%);transition:opacity .45s var(--ease),transform .55s var(--ease)}
-.subnav a{position:relative;z-index:1;display:grid;place-items:center;width:48px;height:48px;padding:0;border:1px solid var(--line);border-radius:12px;background:rgba(0,0,0,.35);backdrop-filter:blur(6px);color:var(--t);transition:background .35s var(--ease),color .35s,border-color .35s}
+.subnav a{position:relative;z-index:1;display:grid;place-items:center;width:48px;height:48px;padding:0;border:1px solid var(--line);border-radius:12px;background:rgba(0,0,0,.35);backdrop-filter:blur(6px);color:var(--t);transition:background .35s var(--ease),color .3s ease .18s,border-color .35s}
 .subnav a:hover{background:rgba(247,180,30,.18);color:var(--y);border-color:rgba(247,180,30,.6)}
 .subnav a.on,.subnav a.on:hover{background:transparent;color:#000;border-color:transparent}
 .subnav svg{display:block}
-.sn-pill{position:absolute;left:0;top:0;width:48px;height:48px;border-radius:12px;background:var(--y);box-shadow:0 8px 22px -8px rgba(247,180,30,.7);
-  transform:translateY(calc(var(--i) * (48px + .9rem)));transition:transform .55s var(--ease)}
+.sn-pill{position:absolute;left:0;top:0;z-index:0;width:48px;height:48px;border-radius:12px;background:var(--y);box-shadow:0 8px 22px -8px rgba(247,180,30,.7);pointer-events:none;
+  transform:translate(0,0);transition:transform .6s cubic-bezier(.3,1.35,.5,1);will-change:transform}
+.subnav a svg{transition:transform .5s var(--ease)}
+.subnav a:hover svg{transform:scale(1.12)}
+.subnav a.on svg{transform:scale(1.15)}
 @media(min-width:861px){#v-jugadores,#v-mercado,#v-perfil{padding-left:5.5rem}}
 @media(max-width:860px){
   .subnav{left:50%;top:auto;bottom:1rem;flex-direction:row;gap:.6rem;padding:.4rem;border:1px solid var(--line);border-radius:16px;background:rgba(0,0,0,.7);backdrop-filter:blur(10px);transform:translateX(-50%) translateY(20px)}
   .subnav.show{transform:translateX(-50%)}
   .subnav a{background:none;border-color:transparent;backdrop-filter:none}
-  .sn-pill{left:.4rem;top:.4rem;transform:translateX(calc(var(--i) * (48px + .6rem)))}
   #v-jugadores,#v-mercado,#v-juego{padding-bottom:6rem}
 }
 
@@ -268,4 +274,4 @@
 @keyframes vInT{from{opacity:0;transform:translateY(-60px)}}
 @keyframes vOutT{to{opacity:0;transform:translateY(-60px)}}
 @keyframes vOutB{to{opacity:0;transform:translateY(60px)}}
-@media(prefers-reduced-motion:reduce){.view,.subnav,.sn-pill{animation:none!important;transition:none!important}}
+@media(prefers-reduced-motion:reduce){.view.vin.from-b,.view.vin.from-t{animation-name:vFade}}
