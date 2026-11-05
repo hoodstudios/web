@@ -1,0 +1,167 @@
+/* Calendario: calendario centrado con luz neón, cartas laterales y editor de eventos (Admin) */
+
+#v-calendario.view{
+  --hh:74px;                                    /* alto de la cabecera fija */
+  --P:56px;                                     /* franja de cada carta que asoma detrás del calendario */
+  --glow:#ffb347;
+  /* ancho del calendario: se reduce si la pantalla es baja, para que todo quepa sin scroll */
+  --cal-w:min(560px,94vw,max(300px,calc((100dvh - var(--hh) - 330px) / .86)));
+  --cw:clamp(200px,calc((100vw - var(--cal-w)) / 2 - 14px),340px);   /* ancho de la carta ya expandida */
+  position:relative;max-width:none;margin:0;padding:var(--hh) 0 0;
+  height:100vh;height:100dvh;overflow:hidden;
+}
+/* sin scroll en esta vista */
+html:has(#v-calendario:not([hidden])){overflow:hidden}
+body:has(#v-calendario:not([hidden])) .foot{display:none}
+
+.cal-stage{position:absolute;inset:var(--hh) 0 0;display:grid;place-items:center}
+.cal-wrap{position:relative;width:var(--cal-w)}
+
+/* ---------- Calendario ---------- */
+.cal{
+  position:relative;z-index:3;padding:16px clamp(12px,2.6vw,20px) clamp(12px,2.6vw,20px);
+  border-radius:18px;background:#0b0904;border:1px solid rgba(255,190,90,.6);
+  box-shadow:0 0 22px -4px rgba(255,176,70,.5),inset 0 0 28px -14px rgba(255,176,70,.35);
+}
+/* luz neón amarillo/naranja suave detrás del calendario */
+.cal-glow{position:absolute;z-index:0;inset:-12px;border-radius:38px;pointer-events:none;
+  background:linear-gradient(135deg,#ffd27a 0%,#ff9f45 55%,#ffb85c 100%);filter:blur(36px);opacity:.5}
+
+.cal-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;margin-bottom:4px}
+.cal-title{display:block;text-align:center;padding:2px 6px;border:0;border-radius:12px;background:none;color:inherit;font:inherit;cursor:pointer;min-width:0}
+.cal-month{font:400 clamp(.95rem,calc(var(--cal-w) / 21),1.9rem)/1.1 var(--mc);color:var(--y);text-shadow:0 0 18px rgba(255,176,70,.45);white-space:nowrap}
+.cal-today{display:block;margin:0 auto 14px;padding:2px 8px;border:0;border-radius:8px;background:none;font:400 clamp(.72rem,1.5vw,.85rem) "Noto Sans",system-ui,sans-serif;color:var(--m);white-space:nowrap;cursor:pointer;transition:color .25s}
+.cal-today:hover{color:var(--t)}
+.cal-head .btn.round{width:clamp(34px,calc(var(--cal-w) / 13),42px);height:clamp(34px,calc(var(--cal-w) / 13),42px);font-size:1.4rem}
+
+.cal-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-bottom:6px;text-align:center;font-size:.78rem;color:var(--m)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.cal-grid.swap{animation:calSwap .35s var(--ease) both}
+@keyframes calSwap{from{opacity:0;transform:translateX(var(--dx,10px))}to{opacity:1;transform:none}}
+
+.cal .d{
+  position:relative;aspect-ratio:1;display:grid;place-items:center;padding:0;
+  border:1px solid transparent;border-radius:12px;background:rgba(255,255,255,.035);
+  color:var(--t);font:500 clamp(.8rem,1.6vw,1rem) "Noto Sans",system-ui,sans-serif;cursor:default;
+  transition:border-color .25s,background .25s,box-shadow .25s;
+}
+.cal .d.o{background:none;color:rgba(168,154,112,.38)}
+.cal .d:hover,.cal .d:focus-visible{border-color:rgba(255,190,90,.65);background:rgba(255,176,70,.1)}
+.cal .d.has{cursor:pointer}
+.cal .d.has span{margin-top:-7px}
+.cal .d.today{background:var(--y);color:#000;font-weight:800;box-shadow:0 0 18px rgba(247,180,30,.55)}
+.cal .d.today:hover{border-color:#fff}
+.cal.admin .d{cursor:pointer}
+.bars{position:absolute;left:20%;right:20%;bottom:13%;display:flex;flex-direction:column;gap:2px;pointer-events:none}
+.bars i{display:block;height:3px;border-radius:3px;background:var(--c);box-shadow:0 0 6px var(--c),0 0 0 1px rgba(0,0,0,.35)}
+
+/* ---------- Mensaje emergente (debajo del calendario) ---------- */
+.cal-tip{
+  position:absolute;z-index:4;left:50%;top:calc(100% + 16px);width:min(440px,92vw);
+  padding:12px 16px;border-radius:14px;background:rgba(11,9,4,.94);border:1px solid var(--line);backdrop-filter:blur(8px);
+  opacity:0;transform:translate(-50%,6px);pointer-events:none;transition:opacity .25s,transform .35s var(--ease);
+}
+.cal-tip.on{opacity:1;transform:translate(-50%,0)}
+.cal-tip.hint{background:none;border-color:transparent;backdrop-filter:none;text-align:center;font-size:.88rem;color:var(--m)}
+.cal-tip .ev{display:flex;gap:10px;align-items:center}
+.cal-tip .ev+.ev{margin-top:7px}
+.cal-tip .bar{flex:none;width:4px;height:1.5rem;border-radius:3px;background:var(--c);box-shadow:0 0 8px var(--c)}
+.cal-tip .row{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:0 12px}
+.cal-tip b{font-weight:700;line-height:1.3}
+.cal-tip .t{color:var(--m);font-size:.88rem;white-space:nowrap}
+.cal-tip .more{margin-top:6px;font-size:.82rem;color:var(--m)}
+
+/* ---------- Cartas laterales (detrás del calendario) ---------- */
+.cal-side{
+  position:absolute;z-index:1;top:7%;bottom:7%;overflow:hidden;
+  width:calc(var(--P) + 16px);border:1px solid rgba(255,190,90,.42);border-radius:18px;
+  background:linear-gradient(180deg,#160e04,#0a0703);outline-offset:2px;
+  transition:width .55s var(--ease),border-color .4s,box-shadow .5s;
+}
+.cal-side.l{right:calc(100% - 16px)}
+.cal-side.r{left:calc(100% - 16px)}
+.cal-side:hover,.cal-side:focus-within,.cal-side.open{width:calc(var(--cw) + 16px);border-color:rgba(255,190,90,.75);box-shadow:0 0 44px -10px rgba(255,160,50,.5)}
+
+/* rótulo vertical: lo único que se ve mientras la carta está recogida */
+.cal-side .tab{position:absolute;top:0;bottom:0;width:var(--P);display:grid;place-items:center;writing-mode:vertical-rl;font:400 .82rem var(--mc);letter-spacing:.04em;color:var(--y);white-space:nowrap;transition:opacity .25s .1s}
+.cal-side.l .tab{right:16px;rotate:180deg}
+.cal-side.r .tab{left:16px}
+.cal-side:hover .tab,.cal-side:focus-within .tab,.cal-side.open .tab{opacity:0;transition-delay:0s}
+
+.cal-side .in{position:absolute;top:0;bottom:0;width:var(--cw);padding:18px;display:flex;flex-direction:column;gap:12px;min-height:0;opacity:0;transition:opacity .2s}
+.cal-side.l .in{right:16px}
+.cal-side.r .in{left:16px}
+.cal-side:hover .in,.cal-side:focus-within .in,.cal-side.open .in{opacity:1;transition:opacity .4s .22s}
+
+.cs-title{font:400 1.05rem/1.2 var(--mc);color:var(--y)}
+.cs-ev{display:flex;flex-direction:column;gap:2px}
+.cs-ev b{font-weight:700;line-height:1.25}
+.cs-ev span{font-size:.85rem;color:var(--m)}
+.cs-tz{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.cs-tz li{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:.42rem 0;border-bottom:1px solid var(--line);font-size:.93rem}
+.cs-tz li:last-child{border-bottom:0}
+.cs-tz b{font-variant-numeric:tabular-nums;font-weight:700}
+.cs-tz small{color:var(--m);font-weight:400;margin-left:.35rem}
+.cs-empty{margin:0;color:var(--m);font-size:.92rem}
+
+/* carta vertical del proyecto: lleva a la sección Proyectos */
+.cs-proj{position:relative;flex:1 1 0;min-height:0;aspect-ratio:3/4;max-width:100%;align-self:center;display:block;overflow:hidden;border-radius:14px;border:2px solid var(--acc);color:#fff;text-decoration:none;background:#111;transition:box-shadow .4s,transform .4s var(--ease)}
+.cs-proj:hover,.cs-proj:focus-visible{transform:translateY(-3px);box-shadow:0 0 30px -6px var(--acc)}
+.cs-proj img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:transform 1s var(--ease)}
+.cs-proj:hover img{transform:scale(1.06)}
+.cs-proj .lbl{position:absolute;left:0;right:0;bottom:0;padding:34px 12px 12px;display:flex;flex-direction:column;gap:2px;background:linear-gradient(to top,rgba(0,0,0,.92),rgba(0,0,0,0))}
+.cs-proj .nm{font:400 1.15rem/1.1 var(--mc);text-shadow:0 2px 0 rgba(0,0,0,.6)}
+.cs-proj .st{font-size:.8rem;font-weight:500;color:var(--acc)}
+.cs-dates{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0}
+.cs-dates div{padding:.45rem .6rem;border:1px solid var(--line);border-radius:12px;background:var(--glass)}
+.cs-dates dt{font-size:.74rem;color:var(--m)}
+.cs-dates dd{margin:0;font-weight:700;font-size:.92rem;line-height:1.25}
+
+/* ---------- Editor de eventos (solo Admin) ---------- */
+.cal-ed-host{position:absolute;z-index:8;inset:var(--hh) 0 0;display:grid;place-items:center;padding:1rem;background:rgba(0,0,0,.72);backdrop-filter:blur(6px);animation:pjFade .3s ease both}
+.cal-ed{position:relative;width:100%;max-width:440px;max-height:calc(100dvh - var(--hh) - 2rem);overflow:auto;background:#0b0904;border-color:rgba(255,190,90,.6);box-shadow:0 0 50px -12px rgba(255,176,70,.55)}
+.cal-ed h3{margin:0 2rem .8rem 0;font-size:1.25rem;color:var(--y)}
+.cal-ed .x{position:absolute;top:.4rem;right:.8rem}
+.ed-list{list-style:none;margin:0 0 .4rem;padding:0;display:flex;flex-direction:column;gap:6px}
+.ed-list li{display:flex;align-items:center;gap:10px;padding:.5rem .7rem;border:1px solid var(--line);border-radius:12px;background:var(--glass)}
+.ed-list .bar{flex:none;width:4px;align-self:stretch;border-radius:3px;background:var(--c)}
+.ed-list .txt{flex:1;min-width:0}
+.ed-list b{display:block;font-weight:700;overflow-wrap:anywhere}
+.ed-list small{color:var(--m)}
+.ed-list .btn{padding:.25rem .7rem;font-size:.8rem}
+.ed-list .btn.del{border-color:rgba(255,138,107,.6);color:#ff8a6b}
+.ed-list .btn.del::before{background:#ff8a6b}
+.ed-empty{margin:0 0 .4rem;color:var(--m);font-size:.92rem}
+.ed-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ed-sw{display:flex;gap:10px;margin:.9rem 0 .2rem;flex-wrap:wrap}
+.ed-sw button{width:28px;height:28px;padding:0;border-radius:50%;border:2px solid transparent;background:var(--c);cursor:pointer;box-shadow:0 0 10px -2px var(--c);transition:transform .25s var(--ease)}
+.ed-sw button[aria-pressed=true]{border-color:#fff;transform:scale(1.15)}
+.cal-ed form .btn+.btn{margin-top:.5rem}
+
+/* ---------- Pantallas estrechas: las cartas se pegan a los bordes y, al tocarlas, se abren sobre el calendario ---------- */
+@media(max-width:980px){
+  #v-calendario.view{--P:40px;--cal-w:min(560px,calc(100vw - 96px),max(280px,calc((100dvh - var(--hh) - 330px) / .86)));--cw:min(82vw,320px)}
+  .cal-side.l{right:auto;left:calc(50% - 50vw)}
+  .cal-side.r{left:auto;right:calc(50% - 50vw)}
+  .cal-side{width:var(--P);z-index:5;top:-5%;bottom:-5%}
+  .cal-side .in{gap:9px;padding:14px 16px}
+  .cs-tz li{padding:.3rem 0}
+  .cal-side:hover,.cal-side:focus-within,.cal-side.open{width:var(--cw)}
+  .cal-side.l .in{right:auto;left:0}
+  .cal-side.r .in{left:auto;right:0}
+  .cal-side .tab{font-size:.74rem}
+  .cal-side.l .tab{right:auto;left:0}
+  .cal-side.r .tab{left:auto;right:0}
+  .cal-side.l{border-left:0;border-radius:0 18px 18px 0}
+  .cal-side.r{border-right:0;border-radius:18px 0 0 18px}
+}
+@media(max-width:860px){#v-calendario.view{--hh:140px}}
+@media(max-height:620px){.cal-side .in{gap:8px;padding:12px 14px}.cs-tz li{padding:.3rem 0}}
+
+/* style.css apaga las transiciones con "reducir movimiento"; aquí se conservan las de abrir/cerrar las cartas */
+@media(prefers-reduced-motion:reduce){
+  #v-calendario .cal-side{transition:width .55s var(--ease),border-color .4s,box-shadow .5s!important}
+  #v-calendario .cal-side .in{transition:opacity .3s!important}
+  #v-calendario .cal-tip{transition:opacity .25s!important}
+  .cal-grid.swap{animation:none}
+}

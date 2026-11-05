@@ -1,19 +1,22 @@
 /* proyectos.js — Carrusel 3D de proyectos (estilo menú de videojuegos) y ventana de cada proyecto.
  * Para añadir o editar proyectos, solo toca la lista PROYECTOS de abajo (las portadas van en la carpeta "proyectos/"). */
-const PROYECTOS = [
+export const PROYECTOS = [
   { id: "hardhood", name: "HardHood", status: "Proyecto activo", img: "proyectos/hardhood.jpg",
+    start: "2026-08-15", end: "2026-12-31",      // fechas de inicio y fin (AAAA-MM-DD): las usa el Calendario
     acc: "#ff8a1f", wbg: "#1a0d03",
     tabs: [
       { t: "Información", h: "HardHood", p: ["Nuestro proyecto activo.", "Aquí irá toda la información de HardHood."] },
       { t: "Crafteos", h: "Crafteos", p: ["Aquí aparecerán los crafteos del proyecto."] },
       { t: "Cambios", h: "Cambios", p: ["Aquí aparecerá el registro de cambios del proyecto."] }] },
   { id: "zombies", name: "Zombies Survival", status: "En desarrollo", img: "proyectos/zombies-survival.jpg",
+    start: "2027-01-15", end: "2027-03-31",
     acc: "#58c768", wbg: "#06130a",
     tabs: [
       { t: "Información", h: "Zombies Survival", p: ["Proyecto en desarrollo.", "Aquí irá toda la información de Zombies Survival."] },
       { t: "Mapa", h: "Mapa", p: ["Aquí aparecerá el mapa del proyecto."] },
       { t: "Comerciantes", h: "Comerciantes", p: ["Aquí aparecerán los comerciantes del proyecto."] }] },
   { id: "borderland", name: "The Borderland", status: "En desarrollo", img: "proyectos/borderland.jpg",
+    start: "2027-04-12", end: "2027-06-30",
     acc: "#d4d4dc", wbg: "#0c0c0f",
     tabs: [
       { t: "Información", h: "The Borderland", p: ["Proyecto en desarrollo.", "Aquí irá toda la información de The Borderland."] },

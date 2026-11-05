@@ -17,6 +17,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;700;800&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="proyectos.css">
+<link rel="stylesheet" href="calendario.css">
 </head>
 <body>
 <header class="top">
@@ -73,7 +74,34 @@
     <div class="dots pj-dots" id="pj-dots"></div>
     <div class="pj-modal" id="pj-modal" hidden></div>
   </section>
-  <section class="view" id="v-calendario" hidden><h2>Calendario</h2><p class="muted">Próximamente</p></section>
+  <section class="view" id="v-calendario" hidden aria-label="Calendario">
+    <h2 class="sr">Calendario</h2>
+    <div class="cal-stage">
+      <div class="cal-wrap" id="cal-wrap">
+        <aside class="cal-side l" id="cal-left" tabindex="0" aria-label="Horario para el próximo evento">
+          <span class="tab" aria-hidden="true">Evento próximo</span>
+          <div class="in" id="cal-left-in"></div>
+        </aside>
+        <aside class="cal-side r" id="cal-right" tabindex="0" aria-label="Proyecto próximo o actual">
+          <span class="tab" aria-hidden="true">Proyecto</span>
+          <div class="in" id="cal-right-in"></div>
+        </aside>
+        <div class="cal-glow" aria-hidden="true"></div>
+        <div class="cal" role="group" aria-label="Calendario de eventos">
+          <div class="cal-head">
+            <button class="btn round" id="cal-prev" type="button" aria-label="Mes anterior">‹</button>
+            <button class="cal-title" id="cal-title" type="button" title="Volver al mes actual"><span class="cal-month" id="cal-month"></span></button>
+            <button class="btn round" id="cal-next" type="button" aria-label="Mes siguiente">›</button>
+          </div>
+          <button class="cal-today" id="cal-today" type="button" title="Volver al mes actual"></button>
+          <div class="cal-week" aria-hidden="true"><span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span></div>
+          <div class="cal-grid" id="cal-grid"></div>
+        </div>
+        <div class="cal-tip" id="cal-tip" aria-live="polite"></div>
+      </div>
+    </div>
+    <div class="cal-ed-host" id="cal-ed" hidden></div>
+  </section>
 
   <section class="view" id="v-jugadores" hidden>
     <div class="subnav"><a href="#jugadores" class="on">Jugadores</a><a href="#juego">Arcade</a><a href="#mercado">Mercado</a></div>
@@ -148,6 +176,7 @@
 </div>
 <script type="module" src="main.js"></script>
 <script type="module" src="proyectos.js"></script>
+<script type="module" src="calendario.js"></script>
 <script type="module" src="navliquid.js"></script>
 </body>
 </html>
