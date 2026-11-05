@@ -63,11 +63,27 @@ const me = () => profile;
 const V = ["inicio", "proyectos", "calendario", "jugadores", "perfil", "juego", "mercado", "creditos"];
 function hashParts() { const [h, ...r] = location.hash.slice(1).split("/"); let a = ""; try { a = decodeURIComponent(r.join("/")); } catch (e) {} return [h, a]; }
 function refreshView() { const [h, a] = hashParts(); if (h === "jugadores") renderPlayers(); else if (h === "perfil") renderProfile(a); }
+const SUB = ["juego", "jugadores", "mercado"];      // secciones de la barra lateral (de arriba abajo)
+let prevView = null, outTimer = 0;
 function route() {
   stopAvatar();
-  const [h, arg] = hashParts(), cur = V.includes(h) ? h : "inicio";
-  V.forEach(v => $("#v-" + v).hidden = v !== cur);
+  const [h, arg] = hashParts(), cur = V.includes(h) ? h : "inicio", prev = prevView, curEl = $("#v-" + cur);
+  clearTimeout(outTimer);
+  V.forEach(v => { const e = $("#v-" + v); e.classList.remove("vin", "vout", "from-b", "from-t", "to-t", "to-b"); e.hidden = v !== cur; });
+  const sub = prev && prev !== cur && SUB.includes(prev) && SUB.includes(cur), dir = sub ? Math.sign(SUB.indexOf(cur) - SUB.indexOf(prev)) : 0;
+  if (prev && prev !== cur) {                                 // la sección nueva entra suave; entre secciones de la barra, deslizando en vertical
+    void curEl.offsetWidth; curEl.classList.add("vin", dir > 0 ? "from-b" : dir < 0 ? "from-t" : "fade");
+    if (sub) {
+      const pe = $("#v-" + prev); pe.hidden = false; pe.classList.add("vout", dir > 0 ? "to-t" : "to-b");
+      outTimer = setTimeout(() => { pe.hidden = true; pe.classList.remove("vout", "to-t", "to-b"); }, 320);
+    }
+  }
+  prevView = cur;
   $$(".nav a").forEach(a => a.classList.toggle("on", a.dataset.v === (["jugadores", "perfil", "juego", "mercado"].includes(cur) ? "comunidad" : cur)));
+  const sn = $("#subnav"), si = SUB.indexOf(cur);
+  sn.hidden = false; sn.classList.toggle("show", si >= 0);   // barra fija: no se mueve, solo se ilumina la sección activa
+  if (si >= 0) sn.style.setProperty("--i", si);
+  $$("#subnav a").forEach((a, i) => a.classList.toggle("on", i === si));
   if (cur === "jugadores") renderPlayers();
   if (cur === "perfil") renderProfile(arg);
   if (cur === "juego") Arcade.enter(); else Arcade.leave();
@@ -679,16 +695,23 @@ const Mine = (() => {
 
 /* ---------- Minijuego ---------- */
 const Game = (() => {
-  const cv = $("#cv"), c = cv.getContext("2d"), W = 800, GY = 200, S = 36, B = 24, BIOME_AT = 21000, MAXT = 3;
+  const cv = $("#cv"), c = cv.getContext("2d"), S = 36, B = 24, BIOME_AT = 21000, MAXT = 3;
+  let W = 800, H = 380, GY = 258, SC = 1;                     // el mundo se adapta a la ventana: W×H lógicos, SC = escala en pantalla
   const IMG = {}; ["totem", "cactus", "flor", "arena", "arena-roja"].forEach(n => { const i = new Image(); i.src = "img/" + n + ".png"; IMG[n] = i; });
   const ok = i => i.complete && i.naturalWidth > 0;
   let raf = 0, last = 0, st = "idle", s, figs = null, figKey = "", figTok = 0, aT = 0, aAir = false;
   const rnd = (a, b) => a + Math.random() * (b - a);
+  function fit() {                                           // el lienzo ocupa toda la ventana (altura lógica ≈380, ancho mínimo 480)
+    const vw = innerWidth, vh = innerHeight; SC = Math.min(vh / 380, vw / 480);
+    const nw = Math.ceil(vw / SC), nh = Math.ceil(vh / SC), ngy = Math.round(nh * .68), d = ngy - GY;
+    if (s && d && s.y >= GY - S) s.y += d;
+    W = nw; H = nh; GY = ngy; cv.width = W; cv.height = H;
+  }
   const reset = () => {
     cv.style.background = "";
     return { y: GY - S, vy: 0, obs: [], tot: [], pts: [], speed: 5, dist: 0, next: 420, totems: 0, inv: 0, boost: 0, biome: 0, banner: 0,
-      clouds: Array.from({ length: 4 }, () => ({ x: rnd(0, W), y: rnd(20, 90) })),
-      mesas: Array.from({ length: 3 }, (_, i) => ({ x: i * 300 + rnd(0, 120), w: rnd(120, 200), h: rnd(50, 95) })) };
+      clouds: Array.from({ length: 5 }, () => ({ x: rnd(0, W), y: rnd(20, GY * .5) })),
+      mesas: Array.from({ length: Math.ceil(W / 300) + 1 }, (_, i) => ({ x: i * 300 + rnd(0, 120), w: rnd(120, 200), h: rnd(50, 95) })) };
   };
   /* El personaje es el avatar Drop del jugador (con su skin); si no ha iniciado sesión, el Steve por defecto */
   async function loadFace() {
@@ -721,11 +744,11 @@ const Game = (() => {
     if (s.next <= 0) { // separación mínima = tiempo de salto + margen de reacción: siempre es posible
       const r = Math.random(), n = r < .45 ? 1 : r < .85 ? 2 : 3, fl = n < 3 && Math.random() < .18;
       s.obs.push({ x: W + 20, n, h: n * B, fl });
-      if (s.totems < MAXT && !s.tot.length && Math.random() < .05) s.tot.push({ x: W + 20 + rnd(90, 170), y: rnd(100, 130), w: 26, h: 26 });
+      if (s.totems < MAXT && !s.tot.length && Math.random() < .05) s.tot.push({ x: W + 20 + rnd(90, 170), y: GY - rnd(70, 100), w: 26, h: 26 });
       s.next = s.speed * 42 + rnd(60, 300) + (fl ? s.speed * 10 : 0);
     }
     s.obs.forEach(o => o.x -= v); s.tot.forEach(t => t.x -= v);
-    s.clouds.forEach(cl => { cl.x -= .4 * k; if (cl.x < -60) { cl.x = W + 20; cl.y = rnd(20, 90); } });
+    s.clouds.forEach(cl => { cl.x -= .4 * k; if (cl.x < -60) { cl.x = W + 20; cl.y = rnd(20, GY * .5); } });
     s.mesas.forEach(m => { m.x -= 1.2 * k; if (m.x + m.w < 0) { m.x = W + rnd(0, 100); m.w = rnd(120, 200); m.h = rnd(50, 95); } });
     s.obs = s.obs.filter(o => o.x > -30); s.tot = s.tot.filter(t => t.x > -40);
     const p = { x: 64, y: s.y + 4, w: S - 8, h: S - 8 };
@@ -756,11 +779,11 @@ const Game = (() => {
     c.restore();
   }
   function draw() {
-    c.clearRect(0, 0, W, 240); c.imageSmoothingEnabled = false;
+    c.clearRect(0, 0, W, H); c.imageSmoothingEnabled = false;
     if (s.biome) { c.fillStyle = "rgba(190,90,30,.25)"; s.mesas.forEach(m => { c.fillRect(m.x, GY - m.h, m.w, m.h); }); c.fillStyle = "rgba(220,120,50,.4)"; s.mesas.forEach(m => c.fillRect(m.x, GY - m.h, m.w, 4)); }
     else { c.fillStyle = "rgba(247,180,30,.07)"; s.clouds.forEach(cl => c.fillRect(cl.x, cl.y, 56, 14)); }
     const fl = IMG[s.biome ? "arena-roja" : "arena"]; c.globalAlpha = .75;
-    for (let x = -(s.dist % 40); x < W; x += 40) { if (ok(fl)) c.drawImage(fl, x, GY, 40, 40); else { c.fillStyle = s.biome ? "#b5541c" : "#d9ca9a"; c.fillRect(x, GY, 40, 40); } }
+    for (let y = GY; y < H; y += 40) for (let x = -(s.dist % 40); x < W; x += 40) { if (ok(fl)) c.drawImage(fl, x, y, 40, 40); else { c.fillStyle = s.biome ? "#b5541c" : "#d9ca9a"; c.fillRect(x, y, 40, 40); } }
     c.globalAlpha = 1;
     s.obs.forEach(o => {
       for (let i = 0; i < o.n; i++) { if (ok(IMG.cactus)) c.drawImage(IMG.cactus, o.x, GY - (i + 1) * B, B, B); else { c.fillStyle = "#3f9b2a"; c.fillRect(o.x, GY - (i + 1) * B, B, B); } }
@@ -770,13 +793,13 @@ const Game = (() => {
     if (st !== "over" && (s.inv <= 0 || Math.floor(s.inv / 4) % 2)) player();
     if (st === "over") { c.globalAlpha = .4; player(); c.globalAlpha = 1; }
     s.pts.forEach(q => { c.fillStyle = q.c; c.globalAlpha = Math.min(1, q.l / 20); c.fillRect(q.x, q.y, 4, 4); }); c.globalAlpha = 1;
-    c.fillStyle = "#f5ecd6"; c.font = "700 16px 'Noto Sans', sans-serif"; c.textAlign = "right"; c.fillText(String(Math.floor(s.dist / 10)).padStart(5, "0"), W - 16, 28);
+    c.fillStyle = "#f5ecd6"; c.font = "700 16px 'Noto Sans', sans-serif"; c.textAlign = "right"; c.fillText(String(Math.floor(s.dist / 10)).padStart(5, "0"), W - 16 - 64 / SC, 28);
     for (let i = 0; i < s.totems; i++) if (ok(IMG.totem)) c.drawImage(IMG.totem, 14 + i * 26, 10, 22, 22);
     c.textAlign = "center"; c.fillStyle = "#f7b41e";
-    if (s.banner > 0) { c.globalAlpha = Math.min(1, s.banner / 40); c.font = "800 22px 'Noto Sans', sans-serif"; c.fillText("Desierto meseta", W / 2, 70); c.globalAlpha = 1; }
+    if (s.banner > 0) { c.globalAlpha = Math.min(1, s.banner / 40); c.font = "800 22px 'Noto Sans', sans-serif"; c.fillText("Desierto meseta", W / 2, GY * .35); c.globalAlpha = 1; }
     c.font = "700 16px 'Noto Sans', sans-serif";
-    if (st === "idle") c.fillText("Pulsa espacio o toca para empezar", W / 2, 120);
-    if (st === "over") { c.font = "800 24px 'Noto Sans', sans-serif"; c.fillText("Fin del juego", W / 2, 100); c.font = "500 15px 'Noto Sans', sans-serif"; c.fillStyle = "#a89a70"; c.fillText(me() ? "Pulsa para reintentar" : "Inicia sesión para guardar tu puntaje", W / 2, 126); }
+    if (st === "idle") c.fillText("Pulsa espacio o toca para empezar", W / 2, GY * .55);
+    if (st === "over") { c.font = "800 24px 'Noto Sans', sans-serif"; c.fillText("Fin del juego", W / 2, GY * .48); c.font = "500 15px 'Noto Sans', sans-serif"; c.fillStyle = "#a89a70"; c.fillText(me() ? "Pulsa para reintentar" : "Inicia sesión para guardar tu puntaje", W / 2, GY * .58); }
   }
   function loop(t) {
     const k = Math.min(2.5, (t - last) / 16.67 || 1); last = t;
@@ -786,16 +809,18 @@ const Game = (() => {
   }
   const key = e => { if (!$("#v-juego").hidden && $("#gamecard").classList.contains("open") && ["Space", "ArrowUp"].includes(e.code) && modal.hidden) { e.preventDefault(); jump(); } };
   addEventListener("keydown", key);
-  cv.addEventListener("pointerdown", e => { e.preventDefault(); jump(); });
+  const gcEl = $("#gamecard");                               // se puede tocar en cualquier punto de la pantalla
+  gcEl.addEventListener("pointerdown", e => { if (e.target.closest(".gc-close")) return; e.preventDefault(); jump(); });
+  addEventListener("resize", () => { if (gcEl.classList.contains("open")) fit(); });
   return {
-    show() { s = s || reset(); loadFace(); cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); },
-    start() { s = reset(); st = "run"; loadFace(); cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); },
+    show() { fit(); s = s || reset(); loadFace(); cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); },
+    start() { fit(); s = reset(); st = "run"; loadFace(); cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); },
     stop() { cancelAnimationFrame(raf); },
     refresh() { loadFace(); }
   };
 })();
 
-/* ---------- Jugar: el personaje salta a la isla y el juego se abre a pantalla completa ---------- */
+/* ---------- Jugar: el personaje salta a la isla y el juego ocupa toda la ventana (sin pantalla completa del navegador) ---------- */
 const Play = (() => {
   const gc = $("#gamecard"), bgEl = $("#gc-bg");
   const isOpen = () => gc.classList.contains("open");
@@ -818,16 +843,13 @@ const Play = (() => {
   function open(w) {
     bgEl.style.backgroundImage = `url("${w.bg}")`;
     gc.classList.add("open"); gc.setAttribute("aria-hidden", "false");
-    try { const r = gc.requestFullscreen ? gc.requestFullscreen() : gc.webkitRequestFullscreen && gc.webkitRequestFullscreen(); if (r && r.catch) r.catch(() => {}); } catch (e) {}
     Game.start();
   }
   function close() {
     if (!isOpen()) return;
     gc.classList.remove("open"); gc.setAttribute("aria-hidden", "true"); Game.stop();
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }
   $("#gc-close").onclick = close;
-  document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement) close(); });
   addEventListener("keydown", e => { if (e.key === "Escape") close(); });
   return { jumpTo, open, close, isOpen };
 })();
@@ -854,8 +876,8 @@ const Arcade = (() => {
     cards.forEach((c, i) => {
       c.bg.classList.toggle("on", i === k); c.d.classList.toggle("on", i === k);
       c.el.classList.toggle("cur", i === k); c.el.setAttribute("aria-selected", i === k);
-      c.el.classList.remove("from-l", "from-r", "to-l", "to-r");
-      if (prev >= 0 && dir) { if (i === k) c.el.classList.add(dir > 0 ? "from-r" : "from-l"); else if (i === prev) c.el.classList.add(dir > 0 ? "to-l" : "to-r"); }
+      c.el.classList.remove("from-b", "from-t", "to-t", "to-b");
+      if (prev >= 0 && dir) { if (i === k) c.el.classList.add(dir > 0 ? "from-b" : "from-t"); else if (i === prev) c.el.classList.add(dir > 0 ? "to-t" : "to-b"); }
     });
     mainEl.style.setProperty("--acc", w.acc);
     $("#ar-name").textContent = g ? g.name : w.name;
@@ -866,7 +888,6 @@ const Arcade = (() => {
   }
   function go(i) { const n = mod(i); if (n === cur && sel === n) return; const d = n === cur ? 0 : (mod(n - cur) <= N / 2 ? 1 : -1); cur = n; apply(n, d); }
   const move = dir => go(cur + dir);
-  $("#wc-up").onclick = () => move(-1); $("#wc-down").onclick = () => move(1);
 
   mainEl.addEventListener("wheel", e => {                      // la rueda sobre la isla cambia de mundo
     const dy = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY; if (Math.abs(dy) < 6) return; e.preventDefault();
@@ -881,7 +902,7 @@ const Arcade = (() => {
   stage.addEventListener("pointerup", e => {
     const s0 = sx; sx = null; if (!s0 || s0.id !== e.pointerId) return;
     const dx = e.clientX - s0.x, dy = e.clientY - s0.y;
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) return move(dx < 0 ? 1 : -1);   // deslizar cambia de mundo
+    if (Math.abs(dy) > 50 && Math.abs(dy) > Math.abs(dx)) return move(dy < 0 ? 1 : -1);   // deslizar en vertical cambia de mundo
     if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && e.target.closest(".wc-card.cur")) launch();
   });
   stage.addEventListener("pointercancel", () => { sx = null; });
@@ -894,8 +915,8 @@ const Arcade = (() => {
   }
 
   return {
-    enter() { active = true; sel = -1; apply(cur, 0); Mine.reset(); Mine.start(); },
-    leave() { active = false; Play.close(); Game.stop(); Mine.stop(); },
+    enter() { active = true; bgs.classList.add("on"); sel = -1; apply(cur, 0); Mine.reset(); Mine.start(); },
+    leave() { active = false; bgs.classList.remove("on"); Play.close(); Game.stop(); Mine.stop(); },
     refresh() { if (active && sel >= 0) { Mine.reset(); renderRank(); } },
     playable: () => active && !!WORLDS[sel] && !!WORLDS[sel].game
   };
