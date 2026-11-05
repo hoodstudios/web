@@ -18,6 +18,7 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="proyectos.css">
 <link rel="stylesheet" href="calendario.css">
+<link rel="stylesheet" href="comunidad.css">
 </head>
 <body>
 <header class="top">
@@ -105,9 +106,20 @@
 
   <section class="view" id="v-jugadores" hidden>
     <div class="subnav"><a href="#jugadores" class="on">Jugadores</a><a href="#juego">Arcade</a><a href="#mercado">Mercado</a></div>
-    <h2>Jugadores</h2>
-    <p class="muted">Ordenados por medallas.</p>
-    <div class="card tablewrap"><table><thead><tr><th>#</th><th>Jugador</th><th>Medallas</th></tr></thead><tbody id="players"></tbody></table></div>
+    <div class="plwrap">
+      <div class="plhead">
+        <h2>Jugadores</h2>
+        <div class="flt" id="flt">
+          <button class="flt-btn" id="flt-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg>
+            <span id="flt-label">Medallas</span>
+            <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="flt-menu" id="flt-menu" role="listbox" aria-label="Ordenar jugadores"></div>
+        </div>
+      </div>
+      <div class="plist" id="players" aria-live="polite"></div>
+    </div>
   </section>
 
   <section class="view" id="v-perfil" hidden>
@@ -116,14 +128,37 @@
   </section>
 
   <section class="view" id="v-juego" hidden>
+    <div class="ar-bgs" id="ar-bgs" aria-hidden="true"></div>
     <div class="subnav"><a href="#jugadores">Jugadores</a><a href="#juego" class="on">Arcade</a><a href="#mercado">Mercado</a></div>
-    <h2>Arcade</h2>
-    <div class="game">
-      <div class="card">
-        <canvas id="cv" width="800" height="240" tabindex="0" aria-label="Minijuego: salta los cactus"></canvas>
-        <p class="muted small" id="hint">Espacio, flecha arriba o toque para saltar. Recoge el tótem para sobrevivir a un golpe.</p>
+    <div class="arcade">
+      <aside class="wc" id="wc" aria-label="Mundos">
+        <button class="wc-arrow up" id="wc-up" type="button" aria-label="Mundo anterior"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>
+        <div class="wc-stage" id="wc-stage" tabindex="0" role="listbox" aria-label="Elige un mundo"></div>
+        <button class="wc-arrow down" id="wc-down" type="button" aria-label="Mundo siguiente"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+        <div class="wc-dots" id="wc-dots"></div>
+      </aside>
+
+      <div class="ar-main" id="ar-main">
+        <div class="ar-title">
+          <span class="ar-chip" id="ar-world">Desierto</span>
+          <h2 id="ar-name">Salta el cactus</h2>
+        </div>
+        <div class="card gamecard" id="gamecard">
+          <canvas id="cv" width="800" height="240" tabindex="0" aria-label="Minijuego: salta los cactus"></canvas>
+          <p class="muted small" id="hint">Espacio, flecha arriba o toque para saltar. Recoge el tótem para sobrevivir a un golpe.</p>
+        </div>
+        <div class="card soonbox" id="soonbox" hidden>
+          <img id="soon-img" src="" alt="" draggable="false">
+          <p class="soon-t">Próximamente</p>
+          <p class="muted small" id="soon-p">Este mundo todavía está en construcción.</p>
+        </div>
       </div>
-      <div class="card rankcard"><h3>Ranking</h3><table class="rank"><tbody id="rank"></tbody></table></div>
+
+      <div class="card rankcard">
+        <div class="rk-head"><h3>Ranking</h3><span class="muted" id="rk-game">Salta el cactus</span></div>
+        <div class="rk-scroll" id="rank"></div>
+        <div class="rk-me" id="rk-me"></div>
+      </div>
     </div>
   </section>
 

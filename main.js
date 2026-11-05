@@ -70,7 +70,7 @@ function route() {
   $$(".nav a").forEach(a => a.classList.toggle("on", a.dataset.v === (["jugadores", "perfil", "juego", "mercado"].includes(cur) ? "comunidad" : cur)));
   if (cur === "jugadores") renderPlayers();
   if (cur === "perfil") renderProfile(arg);
-  if (cur === "juego") { renderRank(); Game.show(); } else Game.stop();
+  if (cur === "juego") Arcade.enter(); else Arcade.leave();
   $("#dc").hidden = cur !== "inicio"; dispatchEvent(new Event("dcsync"));
   window.scrollTo(0, 0); if (cur === "inicio") fitSub();
 }
@@ -333,17 +333,131 @@ form.onsubmit = async e => {
   if (mode === "signup") showStep(); else closeM();
 };
 
-/* ---------- Jugadores ---------- */
-async function renderPlayers() {
-  const tb = $("#players");
-  try {
-    const snap = await getDocs(query(collection(db, "players"), limit(100)));
-    const list = snap.docs.map(d => d.data()).sort((a, b) => medalCount(b) - medalCount(a) || String(a.name).localeCompare(String(b.name)));
-    tb.innerHTML = list.length
-      ? list.map((u, i) => `<tr><td>${i + 1}</td><td><span class="pl"><img src="${esc(okAv(u.avatar))}" alt=""><a href="${esc(pLink(u.name))}">${esc(u.name)}</a></span></td><td>${medalCount(u)}</td></tr>`).join("")
-      : `<tr><td colspan="3" class="empty">Aún no hay jugadores registrados.</td></tr>`;
-  } catch (e) { console.warn(e); tb.innerHTML = `<tr><td colspan="3" class="empty">No se pudo cargar la lista de jugadores.</td></tr>`; }
+/* ---------- Filas con avatar de cuerpo completo (compartidas por Jugadores y Ranking) ---------- */
+const figCache = new Map();
+function figsFor(uid, name, avatar) {                        // { img, slim } de la skin del jugador (se guarda en caché)
+  const key = uid + "|" + avatar;
+  if (!figCache.has(key)) figCache.set(key, (async () => {
+    let md = null;
+    try { const d = await getDoc(doc(db, "avatars", uid)); md = d.exists() ? d.data() : null; } catch (e) { /* sin skin guardada */ }
+    const img = await loadSkin(skinSources(name, avatar, md));
+    return img ? { img, slim: !!(md && md.slim) } : null;
+  })());
+  return figCache.get(key);
 }
+function drawTrim(cv, fig) {                                 // recorta el hueco transparente para que el avatar llene su espacio
+  let x = 0, y = 0, w = fig.width, h = fig.height;
+  try {
+    const d = fig.getContext("2d").getImageData(0, 0, w, h).data; let x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (d[(j * w + i) * 4 + 3] > 8) { if (i < x0) x0 = i; if (i > x1) x1 = i; if (j < y0) y0 = j; if (j > y1) y1 = j; }
+    if (x1 >= 0) { x = x0; y = y0; w = x1 - x0 + 1; h = y1 - y0 + 1; }
+  } catch (e) { const pt = fig.padT || 0, pb = fig.padB || 0; y = pt; h = fig.height - pt - pb; }
+  cv.width = w; cv.height = h; const g = cv.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(fig, x, y, w, h, 0, 0, w, h);
+}
+async function paintFig(cv) {
+  const { uid, name, avatar } = cv.dataset, f = await figsFor(uid, name, avatar);
+  if (f) { try { drawTrim(cv, createFigureSet(f.img, { slim: f.slim, k: 3 }).get("idle", 0).fig); cv.classList.add("ready"); return; } catch (e) { console.warn(e); } }
+  const im = new Image(); im.onload = () => { cv.width = im.width; cv.height = im.height; cv.getContext("2d").drawImage(im, 0, 0); cv.classList.add("ready"); }; im.src = okAv(avatar);
+}
+const figIO = "IntersectionObserver" in window ? new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { figIO.unobserve(e.target); paintFig(e.target); } }), { rootMargin: "300px" }) : null;
+function rowEl(o) {                                          // o: { uid, name, avatar, pos, val, unit, sub, mine, sm, i }
+  const a = document.createElement("a"), p = o.pos;
+  a.className = "prow" + (p <= 3 ? " t" + p : "") + (o.mine ? " mine" : "") + (o.sm ? " sm" : "");
+  a.href = pLink(o.name); a.dataset.uid = o.uid; a.style.setProperty("--i", Math.min(o.i || 0, 14));
+  a.innerHTML = `<span class="plate"><b class="pos"></b><span class="pfig"><canvas data-uid="${esc(o.uid)}" data-name="${esc(o.name)}" data-avatar="${esc(o.avatar || "")}" aria-hidden="true"></canvas></span></span>
+    <span class="pnm"><b>${esc(o.name)}</b><span class="sub"></span></span><span class="pval"></span>`;
+  a.addEventListener("animationend", e => { if (e.target === a) a.classList.add("done"); });
+  setRow(a, o);
+  const cv = a.querySelector("canvas"); if (o.now || !figIO) paintFig(cv); else figIO.observe(cv);
+  return a;
+}
+function setRow(a, o) {                                      // actualiza posición, colores de top y estadística
+  a.className = a.className.replace(/\bt[123]\b/g, "").trim() + (o.pos <= 3 ? " t" + o.pos : "");
+  const pos = a.querySelector(".pos"); pos.textContent = o.pos; pos.dataset.l = String(o.pos).length;
+  a.querySelector(".sub").textContent = o.sub || "";
+  a.querySelector(".pval").innerHTML = `${esc(o.val)}${o.unit ? `<small>${esc(o.unit)}</small>` : ""}`;
+}
+function flip(box, mutate) {                                 // anima el cambio de orden (FLIP)
+  const first = new Map([...box.children].map(e => [e, e.getBoundingClientRect().top]));
+  mutate();
+  [...box.children].forEach(e => {
+    if (!first.has(e)) return; const dy = first.get(e) - e.getBoundingClientRect().top;
+    if (dy) e.animate([{ translate: `0 ${dy}px` }, { translate: "0 0" }], { duration: 650, easing: "cubic-bezier(.22,.8,.3,1)" });
+  });
+}
+
+/* ---------- Jugadores ---------- */
+const SORTS = [
+  { id: "medallas", label: "Medallas" }, { id: "monedas", label: "Monedas" },
+  { id: "nuevos", label: "Más nuevos" }, { id: "antiguos", label: "Más antiguos" },
+  { id: "puntuaciones", label: "Mejores puntuaciones" }
+];
+let plSort = "medallas", plData = [], plRows = new Map();
+const coinsOf = d => Number(d.coins ?? d.monedas) || 0;
+const msOf = d => { try { return d.createdAt.toMillis(); } catch (e) { return 0; } };
+const shortDate = ts => { try { return ts.toDate().toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }); } catch (e) { return "—"; } };
+const nf = n => Number(n).toLocaleString("es-MX");
+function statOf(u, mode) {
+  const med = medalCount(u), co = coinsOf(u), sc = u.score;
+  switch (mode) {
+    case "monedas": return { val: nf(co), unit: "monedas", sub: med + (med === 1 ? " medalla" : " medallas") };
+    case "nuevos": case "antiguos": return { val: shortDate(u.createdAt), unit: mode === "nuevos" ? "se unió" : "miembro desde", sub: med + (med === 1 ? " medalla" : " medallas") };
+    case "puntuaciones": return { val: sc ? nf(sc) : "—", unit: sc ? "puntos" : "sin récord", sub: med + (med === 1 ? " medalla" : " medallas") };
+    default: return { val: nf(med), unit: med === 1 ? "medalla" : "medallas", sub: nf(co) + " monedas" };
+  }
+}
+function sortPlayers(list, mode) {
+  const nm = (a, b) => String(a.name).localeCompare(String(b.name));
+  const f = {
+    medallas: (a, b) => medalCount(b) - medalCount(a) || nm(a, b),
+    monedas: (a, b) => coinsOf(b) - coinsOf(a) || nm(a, b),
+    nuevos: (a, b) => msOf(b) - msOf(a) || nm(a, b),
+    antiguos: (a, b) => (msOf(a) || Infinity) - (msOf(b) || Infinity) || nm(a, b),
+    puntuaciones: (a, b) => (b.score || 0) - (a.score || 0) || nm(a, b)
+  }[mode];
+  return [...list].sort(f);
+}
+function paintPlayers(animate) {
+  const box = $("#players"), list = sortPlayers(plData, plSort);
+  if (!list.length) { box.innerHTML = `<p class="empty">Aún no hay jugadores registrados.</p>`; plRows.clear(); return; }
+  const first = !box.querySelector(".prow"), mine = me() && me().uid;
+  const apply = () => list.forEach((u, i) => {
+    const o = { uid: u.id, name: u.name, avatar: u.avatar, pos: i + 1, i, mine: u.id === mine, ...statOf(u, plSort) };
+    let el = plRows.get(u.id);
+    if (!el) { el = rowEl(o); plRows.set(u.id, el); } else setRow(el, o);
+    el.classList.toggle("mine", o.mine);
+    box.append(el);                                          // append ordena los nodos existentes
+  });
+  if (first || !animate) { box.innerHTML = ""; if (first) plRows.clear(); apply(); } else flip(box, apply);
+}
+async function renderPlayers() {
+  const box = $("#players");
+  try {
+    const [snap, sc] = await Promise.all([
+      getDocs(query(collection(db, "players"), limit(100))),
+      getDocs(query(collection(db, "scores"), limit(500))).catch(() => null)
+    ]);
+    const scores = new Map(); if (sc) sc.docs.forEach(d => scores.set(d.id, Math.floor(Number(d.data().score)) || 0));
+    plData = snap.docs.map(d => ({ id: d.id, ...d.data(), score: scores.get(d.id) || 0 }));
+    const had = !!box.querySelector(".prow"); plRows = had ? plRows : new Map();
+    paintPlayers(had);
+  } catch (e) { console.warn(e); box.innerHTML = `<p class="empty">No se pudo cargar la lista de jugadores.</p>`; }
+}
+(() => {                                                     // menú del filtro
+  const root = $("#flt"), btn = $("#flt-btn"), menu = $("#flt-menu"), lab = $("#flt-label");
+  const ck = `<svg class="ck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>`;
+  menu.innerHTML = SORTS.map((s, k) => `<button class="flt-opt" type="button" role="option" data-s="${s.id}" style="--k:${k}" aria-selected="${s.id === plSort}">${s.label}${ck}</button>`).join("");
+  const set = o => { root.classList.toggle("open", o); btn.setAttribute("aria-expanded", o); };
+  btn.onclick = e => { e.stopPropagation(); set(!root.classList.contains("open")); };
+  menu.onclick = e => {
+    const b = e.target.closest(".flt-opt"); if (!b) return;
+    plSort = b.dataset.s; lab.textContent = SORTS.find(s => s.id === plSort).label;
+    menu.querySelectorAll(".flt-opt").forEach(x => x.setAttribute("aria-selected", x === b));
+    set(false); paintPlayers(true);
+  };
+  document.addEventListener("click", e => { if (!root.contains(e.target)) set(false); });
+  addEventListener("keydown", e => { if (e.key === "Escape") set(false); });
+})();
 
 /* ---------- Perfil ---------- */
 const fmtDate = ts => { try { return ts.toDate().toLocaleDateString("es-MX", { year: "numeric", month: "long", day: "numeric" }); } catch (e) { return "—"; } };
@@ -469,30 +583,79 @@ async function renderProfile(name) {
   } catch (e) { console.warn(e); if (tok === profTok) box.innerHTML = `<p class="muted">No se pudo cargar el perfil.</p>`; }
 }
 
-/* ---------- Ranking del juego ---------- */
+/* ---------- Mundos del Arcade y ranking ---------- */
+/* Para añadir un minijuego: pon su "game" (col = colección de Firestore, field = campo del récord). Los mundos con game:null salen como "Próximamente". */
+const WORLDS = [
+  { id: "desierto", name: "Desierto", acc: "#f2c14e", img: "img/mundos/desierto.png", bg: "img/fondos/desierto.jpg",
+    game: { id: "runner", name: "Salta el cactus", col: "scores", field: "score", unit: "puntos" } },
+  { id: "end", name: "El End", acc: "#b57cf0", img: "img/mundos/end.png", bg: "img/fondos/end.jpg", b: .8, game: null },
+  { id: "oceano", name: "Océano", acc: "#3fd0e0", img: "img/mundos/oceano.png", bg: "img/fondos/oceano.jpg", game: null }
+];
+let selWorld = 0, rankTok = 0;
+
 async function renderRank() {
-  const tb = $("#rank");
-  const row = (x, i) => {
-    const n = String(x.name || "?"), mine = me() && me().name === n;
-    return `<tr${mine ? ' class="mine"' : ""}><td>${i + 1}</td><td><span class="pl"><img src="${esc(okAv(x.avatar))}" alt=""><a href="${esc(pLink(n))}">${esc(n)}</a></span></td><td>${Math.floor(Number(x.score)) || 0}</td></tr>`;
-  };
+  const w = WORLDS[selWorld], box = $("#rank"), tok = ++rankTok;
+  if (!w.game) { box.classList.add("end"); box.innerHTML = `<p class="empty">Este mundo aún no tiene ranking.</p>`; Mine.render(null); return; }
+  box.classList.remove("end");
   try {
     let docs;
-    try { docs = (await getDocs(query(collection(db, "scores"), orderBy("score", "desc"), limit(10)))).docs; }
-    catch (e) { console.warn("ranking: consulta ordenada falló, ordeno en el navegador", e); docs = (await getDocs(query(collection(db, "scores"), limit(200)))).docs; }
-    const r = docs.map(d => d.data()).filter(x => Number(x.score) > 0).sort((a, b) => Number(b.score) - Number(a.score)).slice(0, 10);
-    tb.innerHTML = r.length ? r.map(row).join("") : `<tr><td colspan="3" class="empty">Sé el primero en el ranking.</td></tr>`;
-  } catch (e) { console.warn(e); tb.innerHTML = `<tr><td colspan="3" class="empty">No se pudo cargar el ranking${e && e.code ? " (" + esc(e.code) + ")" : ""}.</td></tr>`; }
+    try { docs = (await getDocs(query(collection(db, w.game.col), orderBy(w.game.field, "desc"), limit(200)))).docs; }
+    catch (e) { console.warn("ranking: consulta ordenada falló, ordeno en el navegador", e); docs = (await getDocs(query(collection(db, w.game.col), limit(200)))).docs; }
+    if (tok !== rankTok) return;
+    const all = docs.map(d => ({ id: d.id, ...d.data() })).filter(x => Number(x[w.game.field]) > 0).sort((a, b) => Number(b[w.game.field]) - Number(a[w.game.field]));
+    const u = me(), top = all.slice(0, 10);
+    box.innerHTML = "";
+    if (!top.length) box.innerHTML = `<p class="empty">Sé el primero en el ranking.</p>`;
+    top.forEach((x, i) => box.append(rowEl({ uid: x.id, name: String(x.name || "?"), avatar: x.avatar, pos: i + 1, i, sm: true, now: true,
+      mine: !!u && u.uid === x.id, val: nf(Math.floor(Number(x[w.game.field])) || 0), unit: w.game.unit })));
+    box.scrollTop = 0; box.classList.toggle("end", top.length <= 5);
+    const idx = u ? all.findIndex(x => x.id === u.uid) : -1;
+    let best = idx >= 0 ? Math.floor(Number(all[idx][w.game.field])) : null;
+    if (u && best === null) { try { const s = await getDoc(doc(db, w.game.col, u.uid)); if (s.exists()) best = Math.floor(Number(s.data()[w.game.field])) || null; } catch (e) { /* sin récord */ } }
+    if (tok === rankTok) Mine.render({ pos: idx >= 0 ? idx + 1 : null, best });
+  } catch (e) { console.warn(e); if (tok === rankTok) { box.classList.add("end"); box.innerHTML = `<p class="empty">No se pudo cargar el ranking${e && e.code ? " (" + esc(e.code) + ")" : ""}.</p>`; } }
 }
 async function saveScore(score) {
-  const u = me(); if (!u || !score) return;
+  const u = me(), g = WORLDS[0].game; if (!u || !score) return;
   try {
-    const ref = doc(db, "scores", u.uid), snap = await getDoc(ref);
-    if (snap.exists() && snap.data().score >= score) return;
-    await setDoc(ref, { name: u.name, avatar: u.avatar, score: Math.floor(score) });
-    renderRank();
-  } catch (e) { console.warn("No se pudo guardar el puntaje:", e); const t = $("#rank"); if (t) t.insertAdjacentHTML("beforeend", `<tr><td colspan="3" class="empty">No se pudo guardar tu puntaje${e && e.code ? " (" + esc(e.code) + ")" : ""}.</td></tr>`); }
+    const ref = doc(db, g.col, u.uid), snap = await getDoc(ref);
+    if (snap.exists() && snap.data()[g.field] >= score) return;
+    await setDoc(ref, { name: u.name, avatar: u.avatar, [g.field]: Math.floor(score) });
+    if (WORLDS[selWorld].game === g) renderRank();
+  } catch (e) { console.warn("No se pudo guardar el puntaje:", e); Mine.note(`No se pudo guardar tu puntaje${e && e.code ? " (" + e.code + ")" : ""}.`); }
 }
+
+/* Tu sección del ranking: fija bajo la tabla, con tu personaje en animación idle */
+const Mine = (() => {
+  const box = $("#rk-me"); let set = null, raf = 0, cv = null, tok = 0, last = -1, shown = "";
+  const loop = t => {
+    if (cv && set) { const i = Math.floor(t / 1000 * ANIMS.idle.fps) % ANIMS.idle.frames.length;
+      if (i !== last) { last = i; const { fig } = set.get("idle", i); cv.width = fig.width; cv.height = fig.height; const g = cv.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(fig, 0, 0); } }
+    raf = requestAnimationFrame(loop);
+  };
+  async function load(u) {
+    const k = ++tok, f = u ? await figsFor(u.uid, u.name, u.avatar) : await loadSkin(["https://minotar.net/skin/MHF_Steve", "https://mc-heads.net/skin/MHF_Steve", LOCAL_SKIN]).then(i => i && { img: i, slim: false });
+    if (k !== tok || !f) return; set = createFigureSet(f.img, { slim: f.slim, k: 3 }); last = -1;
+  }
+  return {
+    render(d) {
+      const u = me(); if (!d) { box.hidden = true; return; } box.hidden = false;
+      const g = WORLDS[selWorld].game, sig = (u ? u.uid : "guest") + "|" + (u && u.avatar);
+      box.innerHTML = `<div class="you"><canvas aria-hidden="true"></canvas></div>
+        <div class="who"><small>Tu posición</small><b>${u ? esc(u.name) : "Invitado"}</b>
+          ${u ? `<span>${d.best ? "Tu récord: " + nf(d.best) + " " + esc(g.unit) : "Aún sin récord"}</span>` : `<span>Inicia sesión para entrar al ranking</span>`}</div>
+        <div class="pp"><b>${d.pos ? "#" + d.pos : "—"}</b><small>${d.pos ? "de la clasificación" : u ? (d.best ? "fuera del top 200" : "sin clasificar") : ""}</small></div>
+        <p class="rk-note" id="rk-note" hidden></p>`;
+      cv = box.querySelector("canvas");
+      if (sig !== shown || !set) { shown = sig; set = null; load(u); } else last = -1;
+      if (!raf) raf = requestAnimationFrame(loop);
+    },
+    note(t) { const n = $("#rk-note"); if (n) { n.textContent = t; n.hidden = false; } },
+    start() { if (!raf) raf = requestAnimationFrame(loop); },
+    stop() { cancelAnimationFrame(raf); raf = 0; },
+    reset() { shown = ""; }
+  };
+})();
 
 /* ---------- Minijuego ---------- */
 const Game = (() => {
@@ -601,7 +764,7 @@ const Game = (() => {
     aT += k / 60 * (st !== "run" ? ANIMS.idle.fps : aAir ? ANIMS.jump.fps * 1.5 : ANIMS.walk.fps * 1.5);   // andar y salto a 1,5×
     draw(); raf = requestAnimationFrame(loop);
   }
-  const key = e => { if (!$("#v-juego").hidden && ["Space", "ArrowUp"].includes(e.code) && modal.hidden) { e.preventDefault(); jump(); } };
+  const key = e => { if (!$("#v-juego").hidden && !$("#gamecard").hidden && ["Space", "ArrowUp"].includes(e.code) && modal.hidden) { e.preventDefault(); jump(); } };
   addEventListener("keydown", key);
   cv.addEventListener("pointerdown", e => { e.preventDefault(); jump(); });
   return {
@@ -611,13 +774,109 @@ const Game = (() => {
   };
 })();
 
+/* ---------- Arcade: carrusel vertical de mundos ---------- */
+const Arcade = (() => {
+  const N = WORLDS.length, mod = i => ((i % N) + N) % N, clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const stage = $("#wc-stage"), bgs = $("#ar-bgs"), dots = $("#wc-dots"), mainEl = $("#ar-main");
+  let pos = 0, target = 0, sel = -1, raf = 0, from = 0, t0 = 0, lastWheel = 0, active = false, drag = null;
+  const cur = () => mod(Math.round(target));
+
+  const cards = WORLDS.map((w, i) => {
+    const el = document.createElement("article");
+    el.className = "wc-card"; el.dataset.i = i; el.dataset.w = w.id; el.style.setProperty("--acc", w.acc);
+    el.setAttribute("role", "option"); el.setAttribute("aria-label", w.name + (w.game ? " — " + w.game.name : " — Próximamente"));
+    el.innerHTML = `<div class="cover" style="background-image:url('${w.bg}')"></div><img class="ico" src="${w.img}" alt="" draggable="false">
+      ${w.game ? "" : `<span class="tag">Próximamente</span>`}<div class="lbl">${esc(w.name)}</div>`;
+    stage.append(el);
+    const bg = document.createElement("div"); bg.className = "ar-bg"; bg.style.backgroundImage = `url("${w.bg}")`; if (w.b) bg.style.setProperty("--b", w.b); bgs.append(bg);
+    const d = document.createElement("i"); d.setAttribute("role", "button"); d.setAttribute("aria-label", w.name); d.onclick = () => go(i); dots.append(d);
+    return { el, bg, d };
+  });
+
+  function layout() {
+    const near = mod(Math.round(pos));
+    cards.forEach((c, i) => {
+      let d = i - pos; d -= N * Math.round(d / N);
+      const a = Math.abs(d), s = Math.sign(d), t = Math.min(a, 1);
+      const y = s * (94 * t + 40 * Math.max(0, Math.min(a, 2) - 1)), z = -Math.min(a, 2) * 150, rx = clamp(-d * 30, -48, 48), sc = 1 - .16 * t;
+      const op = a < 1.25 ? 1 : Math.max(0, 1 - (a - 1.25) / .5);
+      c.el.style.transform = `translateY(${y}%) translateZ(${z}px) rotateX(${rx}deg) scale(${sc})`;
+      c.el.style.filter = a < .02 ? "none" : `blur(${(t * 3.5).toFixed(2)}px) brightness(${(1 - t * .5).toFixed(2)})`;
+      c.el.style.opacity = op; c.el.style.zIndex = 20 - Math.round(a * 4);
+      c.el.style.pointerEvents = op < .05 ? "none" : "";
+      c.el.classList.toggle("cur", i === near); c.el.setAttribute("aria-selected", i === near);
+    });
+  }
+  function apply(k) {                                          // un mundo se ha elegido: fondo, título, juego y ranking
+    sel = k; selWorld = k; const w = WORLDS[k], g = w.game;
+    cards.forEach((c, i) => { c.bg.classList.toggle("on", i === k); c.d.classList.toggle("on", i === k); });
+    mainEl.style.setProperty("--acc", w.acc);
+    $("#ar-world").textContent = g ? w.name : "Próximamente"; $("#ar-name").textContent = g ? g.name : w.name;
+    $("#rk-game").textContent = g ? g.name : w.name;
+    $("#gamecard").hidden = !g; $("#soonbox").hidden = !!g;
+    if (g) { if (active) Game.show(); } else { Game.stop(); $("#soon-img").src = w.img; $("#soon-p").textContent = w.name + " todavía está en construcción."; }
+    mainEl.classList.remove("swap"); void mainEl.offsetWidth; mainEl.classList.add("swap");
+    renderRank();
+  }
+  function sync() { cards.forEach((c, i) => c.d.classList.toggle("on", i === cur())); if (cur() !== sel) apply(cur()); }
+
+  const DUR = 700, ease = x => 1 - Math.pow(1 - x, 3.4);
+  function tween(to) { target = to; from = pos; t0 = performance.now(); sync(); if (!raf) raf = requestAnimationFrame(step); }
+  function step(now) {
+    const x = Math.min(1, (now - t0) / DUR); pos = from + (target - from) * ease(x); layout();
+    if (x < 1) raf = requestAnimationFrame(step); else { raf = 0; pos = target; layout(); }
+  }
+  const halt = () => { if (raf) { cancelAnimationFrame(raf); raf = 0; } };
+  function go(i) { const base = Math.round(target); tween(base + mod(i - mod(base) + N / 2) - N / 2); }
+  const move = dir => tween(Math.round(target) + dir);
+  $("#wc-up").onclick = () => move(-1); $("#wc-down").onclick = () => move(1);
+
+  $("#wc").addEventListener("wheel", e => {                    // la rueda cambia de mundo
+    if (Math.abs(e.deltaY) < 6) return; e.preventDefault();
+    const now = performance.now(); if (now - lastWheel < 520) return; lastWheel = now; move(e.deltaY > 0 ? 1 : -1);
+  }, { passive: false });
+  stage.addEventListener("keydown", e => {
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); move(e.key === "ArrowUp" ? -1 : 1); }
+  });
+  stage.addEventListener("pointerdown", e => {
+    if (e.button) return; halt();
+    drag = { id: e.pointerId, y0: e.clientY, p0: pos, moved: false, card: e.target.closest(".wc-card"), t: performance.now(), y: e.clientY, v: 0 };
+  });
+  stage.addEventListener("pointermove", e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dy = e.clientY - drag.y0, stepPx = (cards[0].el.offsetHeight || 190) * .84;
+    if (!drag.moved && Math.abs(dy) > 8) { drag.moved = true; stage.classList.add("drag"); try { stage.setPointerCapture(drag.id); } catch (_) {} }
+    if (!drag.moved) return;
+    const now = performance.now(); drag.v = (e.clientY - drag.y) / Math.max(1, now - drag.t); drag.y = e.clientY; drag.t = now;
+    pos = drag.p0 - dy / stepPx; layout();
+  });
+  const endDrag = e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag; drag = null; stage.classList.remove("drag");
+    if (!d.moved) { if (d.card) { const i = +d.card.dataset.i; if (i !== cur()) go(i); } return; }
+    const dy = e.clientY - d.y0, stepPx = (cards[0].el.offsetHeight || 190) * .84, base = Math.round(d.p0);
+    let t = Math.round(pos - d.v * 160 / stepPx); if (t === base && Math.abs(dy) > 40) t = base + (dy < 0 ? 1 : -1);
+    tween(t);
+  };
+  stage.addEventListener("pointerup", endDrag);
+  stage.addEventListener("pointercancel", e => { if (drag && e.pointerId === drag.id) { drag = null; stage.classList.remove("drag"); tween(Math.round(pos)); } });
+
+  layout();
+  return {
+    enter() { active = true; sel = -1; layout(); sync(); Mine.reset(); Mine.start(); },
+    leave() { active = false; Game.stop(); Mine.stop(); },
+    refresh() { if (active && sel >= 0) { Mine.reset(); renderRank(); } },
+    playable: () => active && !!WORLDS[sel] && !!WORLDS[sel].game
+  };
+})();
+
 /* ---------- Arranque ---------- */
 $("#yr").textContent = new Date().getFullYear();
 route();
 onAuthStateChanged(auth, async user => {
   if (signing) return; // signUp/logIn manejan su propio perfil
   await loadProfile(user);
-  ready = true; renderAuth(); Game.refresh();
+  ready = true; renderAuth(); Game.refresh(); Arcade.refresh();
   refreshView();
 });
 })();
