@@ -49,7 +49,7 @@ const MEDALS = {
 };
 /* Minijuegos con récord personal: col = colección de Firestore, field = campo con el récord */
 const GAMES = [
-  { id: "runner", name: "Salta el cactus", col: "scores", field: "score", unit: "puntos" }
+  { id: "runner", name: "Desert Rush", col: "scores", field: "score", unit: "puntos" }
 ];
 const medalCount = d => Array.isArray(d.medalIds) ? d.medalIds.length : (Number(d.medals) || 0);
 const pLink = n => "#perfil/" + encodeURIComponent(n);
@@ -588,12 +588,32 @@ async function renderProfile(name) {
 /* Para añadir un minijuego: pon su "game" (col = colección de Firestore, field = campo del récord). Los mundos con game:null salen como "Próximamente". */
 const WORLDS = [
   { id: "desierto", name: "Desierto", acc: "#f2c14e", img: "img/mundos/desierto.png", bg: "img/fondos/desierto.jpg",
-    game: { id: "runner", name: "Salta el cactus", col: "scores", field: "score", unit: "puntos" } },
+    game: { id: "runner", name: "Desert Rush", col: "scores", field: "score", unit: "puntos" } },
   { id: "end", name: "El End", acc: "#b57cf0", img: "img/mundos/end.png", bg: "img/fondos/end.jpg", b: .8, game: null },
   { id: "oceano", name: "Océano", acc: "#3fd0e0", img: "img/mundos/oceano.png", bg: "img/fondos/oceano.jpg", game: null }
 ];
 let selWorld = 0, rankTok = 0;
 
+/* Fila del ranking del arcade: posición · cara del jugador · nombre · puntaje */
+async function paintFace(cv) {
+  const { uid, name, avatar } = cv.dataset, g = cv.getContext("2d"); g.imageSmoothingEnabled = false;
+  const f = await figsFor(uid, name, avatar).catch(() => null);
+  if (f && f.img) {                                          // cabeza (8×8 en la skin) + capa exterior
+    const k = f.img.width / 64, h = 8 * k; cv.width = cv.height = 8;
+    g.drawImage(f.img, 8 * k, 8 * k, h, h, 0, 0, 8, 8); g.drawImage(f.img, 40 * k, 8 * k, h, h, 0, 0, 8, 8);
+    cv.classList.add("ready"); return;
+  }
+  const im = new Image(); im.onload = () => { g.clearRect(0, 0, 8, 8); g.drawImage(im, 0, 0, 8, 8); cv.classList.add("ready"); }; im.src = okAv(avatar);
+}
+const faceIO = "IntersectionObserver" in window ? new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { faceIO.unobserve(e.target); paintFace(e.target); } }), { rootMargin: "200px" }) : null;
+function arRow(o) {                                          // o: { uid, name, avatar, pos, i, mine, val }
+  const a = document.createElement("a");
+  a.className = "ar-row" + (o.pos <= 3 ? " t" + o.pos : "") + (o.mine ? " mine" : "");
+  a.href = pLink(o.name); a.dataset.uid = o.uid; a.style.setProperty("--i", Math.min(o.i || 0, 12));
+  a.innerHTML = `<b class="n">${o.pos}</b><span class="hd"><canvas width="8" height="8" data-uid="${esc(o.uid)}" data-name="${esc(o.name)}" data-avatar="${esc(o.avatar || "")}" aria-hidden="true"></canvas></span><span class="nm">${esc(o.name)}</span><span class="v">${esc(o.val)}</span>`;
+  const cv = a.querySelector("canvas"); if (o.i < 14 || !faceIO) paintFace(cv); else faceIO.observe(cv);
+  return a;
+}
 async function renderRank() {
   const w = WORLDS[selWorld], box = $("#rank"), tok = ++rankTok;
   if (!w.game) { box.classList.add("end"); box.innerHTML = `<p class="empty">Este mundo aún no tiene ranking.</p>`; Mine.render(null); return; }
@@ -604,12 +624,12 @@ async function renderRank() {
     catch (e) { console.warn("ranking: consulta ordenada falló, ordeno en el navegador", e); docs = (await getDocs(query(collection(db, w.game.col), limit(200)))).docs; }
     if (tok !== rankTok) return;
     const all = docs.map(d => ({ id: d.id, ...d.data() })).filter(x => Number(x[w.game.field]) > 0).sort((a, b) => Number(b[w.game.field]) - Number(a[w.game.field]));
-    const u = me(), top = all.slice(0, 10);
+    const u = me(), top = all.slice(0, 50);
     box.innerHTML = "";
     if (!top.length) box.innerHTML = `<p class="empty">Sé el primero en el ranking.</p>`;
-    top.forEach((x, i) => box.append(rowEl({ uid: x.id, name: String(x.name || "?"), avatar: x.avatar, pos: i + 1, i, sm: true, now: true,
-      mine: !!u && u.uid === x.id, val: nf(Math.floor(Number(x[w.game.field])) || 0), unit: w.game.unit })));
-    box.scrollTop = 0; box.classList.toggle("end", top.length <= 5);
+    top.forEach((x, i) => box.append(arRow({ uid: x.id, name: String(x.name || "?"), avatar: x.avatar, pos: i + 1, i,
+      mine: !!u && u.uid === x.id, val: nf(Math.floor(Number(x[w.game.field])) || 0) })));
+    box.scrollTop = 0; box.classList.toggle("end", top.length <= 9);
     const idx = u ? all.findIndex(x => x.id === u.uid) : -1;
     let best = idx >= 0 ? Math.floor(Number(all[idx][w.game.field])) : null;
     if (u && best === null) { try { const s = await getDoc(doc(db, w.game.col, u.uid)); if (s.exists()) best = Math.floor(Number(s.data()[w.game.field])) || null; } catch (e) { /* sin récord */ } }
@@ -642,10 +662,9 @@ const Mine = (() => {
     render(d) {
       const u = me(); if (!d) { box.hidden = true; return; } box.hidden = false;
       const g = WORLDS[selWorld].game, sig = (u ? u.uid : "guest") + "|" + (u && u.avatar);
-      box.innerHTML = `<div class="you"><canvas aria-hidden="true"></canvas></div>
-        <div class="who"><small>Tu posición</small><b>${u ? esc(u.name) : "Invitado"}</b>
-          ${u ? `<span>${d.best ? "Tu récord: " + nf(d.best) + " " + esc(g.unit) : "Aún sin récord"}</span>` : `<span>Inicia sesión para entrar al ranking</span>`}</div>
-        <div class="pp"><b>${d.pos ? "#" + d.pos : "—"}</b><small>${d.pos ? "de la clasificación" : u ? (d.best ? "fuera del top 200" : "sin clasificar") : ""}</small></div>
+      const sub = !u ? "Inicia sesión para entrar al ranking" : d.pos ? "Puesto #" + d.pos : d.best ? "Fuera del top 200" : "Aún sin récord";
+      box.innerHTML = `<div class="rec"><small>Record</small><b>${d.best ? nf(d.best) : "—"}</b><span>${sub}</span></div>
+        <div class="you"><canvas aria-hidden="true"></canvas></div>
         <p class="rk-note" id="rk-note" hidden></p>`;
       cv = box.querySelector("canvas");
       if (sig !== shown || !set) { shown = sig; set = null; load(u); } else last = -1;
@@ -813,104 +832,69 @@ const Play = (() => {
   return { jumpTo, open, close, isOpen };
 })();
 
-/* ---------- Arcade: carrusel vertical de mundos ---------- */
+/* ---------- Arcade: isla grande + selector de mundos ---------- */
 const Arcade = (() => {
-  const N = WORLDS.length, mod = i => ((i % N) + N) % N, clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const stage = $("#wc-stage"), bgs = $("#ar-bgs"), dots = $("#wc-dots"), mainEl = $("#ar-main");
-  let pos = 0, target = 0, sel = -1, raf = 0, from = 0, t0 = 0, lastWheel = 0, active = false, drag = null;
-  const cur = () => mod(Math.round(target));
+  const N = WORLDS.length, mod = i => ((i % N) + N) % N;
+  const stage = $("#wc-stage"), bgs = $("#ar-bgs"), dots = $("#wc-dots"), mainEl = $("#ar-main"), tip = $("#ar-tip");
+  let cur = 0, sel = -1, lastWheel = 0, active = false, launching = false, sx = null;
 
   const cards = WORLDS.map((w, i) => {
     const el = document.createElement("article");
     el.className = "wc-card"; el.dataset.i = i; el.dataset.w = w.id; el.style.setProperty("--acc", w.acc);
     el.setAttribute("role", "option"); el.setAttribute("aria-label", w.name + (w.game ? " — " + w.game.name : " — Próximamente"));
-    el.innerHTML = `<div class="cover" style="background-image:url('${w.bg}')"></div><img class="ico" src="${w.img}" alt="" draggable="false">
-      ${w.game ? "" : `<span class="tag">Próximamente</span>`}<div class="lbl">${esc(w.name)}</div>`;
+    el.innerHTML = `<img class="ico" src="${w.img}" alt="" draggable="false">`;
     stage.append(el);
     const bg = document.createElement("div"); bg.className = "ar-bg"; bg.style.backgroundImage = `url("${w.bg}")`; if (w.b) bg.style.setProperty("--b", w.b); bgs.append(bg);
     const d = document.createElement("i"); d.setAttribute("role", "button"); d.setAttribute("aria-label", w.name); d.onclick = () => go(i); dots.append(d);
     return { el, bg, d };
   });
 
-  function layout() {
-    const near = mod(Math.round(pos));
+  function apply(k, dir) {                                     // un mundo se ha elegido: fondo, título, juego y ranking
+    const prev = sel; sel = k; selWorld = k; const w = WORLDS[k], g = w.game;
     cards.forEach((c, i) => {
-      let d = i - pos; d -= N * Math.round(d / N);
-      const a = Math.abs(d), s = Math.sign(d), t = Math.min(a, 1);
-      const y = s * (94 * t + 40 * Math.max(0, Math.min(a, 2) - 1)), z = -Math.min(a, 2) * 150, rx = clamp(-d * 30, -48, 48), sc = 1 - .16 * t;
-      const op = a < 1.25 ? 1 : Math.max(0, 1 - (a - 1.25) / .5);
-      c.el.style.transform = `translateY(${y}%) translateZ(${z}px) rotateX(${rx}deg) scale(${sc})`;
-      c.el.style.filter = a < .02 ? "none" : `blur(${(t * 3.5).toFixed(2)}px) brightness(${(1 - t * .5).toFixed(2)})`;
-      c.el.style.opacity = op; c.el.style.zIndex = 20 - Math.round(a * 4);
-      c.el.style.pointerEvents = op < .05 ? "none" : "";
-      c.el.classList.toggle("cur", i === near); c.el.setAttribute("aria-selected", i === near);
+      c.bg.classList.toggle("on", i === k); c.d.classList.toggle("on", i === k);
+      c.el.classList.toggle("cur", i === k); c.el.setAttribute("aria-selected", i === k);
+      c.el.classList.remove("from-l", "from-r", "to-l", "to-r");
+      if (prev >= 0 && dir) { if (i === k) c.el.classList.add(dir > 0 ? "from-r" : "from-l"); else if (i === prev) c.el.classList.add(dir > 0 ? "to-l" : "to-r"); }
     });
-  }
-  function apply(k) {                                          // un mundo se ha elegido: fondo, título, juego y ranking
-    sel = k; selWorld = k; const w = WORLDS[k], g = w.game;
-    cards.forEach((c, i) => { c.bg.classList.toggle("on", i === k); c.d.classList.toggle("on", i === k); });
     mainEl.style.setProperty("--acc", w.acc);
-    $("#ar-world").textContent = g ? w.name : "Próximamente"; $("#ar-name").textContent = g ? g.name : w.name;
-    $("#rk-game").textContent = g ? g.name : w.name;
-    $("#soonbox").hidden = true;
+    $("#ar-name").textContent = g ? g.name : w.name;
+    tip.textContent = g ? "Haz clic en la isla para jugar" : "Próximamente";
+    mainEl.classList.toggle("soon", !g);
     mainEl.classList.remove("swap"); void mainEl.offsetWidth; mainEl.classList.add("swap");
     renderRank();
   }
-  function sync() { cards.forEach((c, i) => c.d.classList.toggle("on", i === cur())); if (cur() !== sel) apply(cur()); }
-
-  const DUR = 700, ease = x => 1 - Math.pow(1 - x, 3.4);
-  function tween(to) { target = to; from = pos; t0 = performance.now(); sync(); if (!raf) raf = requestAnimationFrame(step); }
-  function step(now) {
-    const x = Math.min(1, (now - t0) / DUR); pos = from + (target - from) * ease(x); layout();
-    if (x < 1) raf = requestAnimationFrame(step); else { raf = 0; pos = target; layout(); }
-  }
-  const halt = () => { if (raf) { cancelAnimationFrame(raf); raf = 0; } };
-  function go(i) { const base = Math.round(target); tween(base + mod(i - mod(base) + N / 2) - N / 2); }
-  const move = dir => tween(Math.round(target) + dir);
+  function go(i) { const n = mod(i); if (n === cur && sel === n) return; const d = n === cur ? 0 : (mod(n - cur) <= N / 2 ? 1 : -1); cur = n; apply(n, d); }
+  const move = dir => go(cur + dir);
   $("#wc-up").onclick = () => move(-1); $("#wc-down").onclick = () => move(1);
 
-  $("#wc").addEventListener("wheel", e => {                    // la rueda cambia de mundo
-    if (Math.abs(e.deltaY) < 6) return; e.preventDefault();
-    const now = performance.now(); if (now - lastWheel < 520) return; lastWheel = now; move(e.deltaY > 0 ? 1 : -1);
+  mainEl.addEventListener("wheel", e => {                      // la rueda sobre la isla cambia de mundo
+    const dy = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY; if (Math.abs(dy) < 6) return; e.preventDefault();
+    const now = performance.now(); if (now - lastWheel < 520) return; lastWheel = now; move(dy > 0 ? 1 : -1);
   }, { passive: false });
   stage.addEventListener("keydown", e => {
-    if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); move(e.key === "ArrowUp" ? -1 : 1); }
+    if (["ArrowUp", "ArrowLeft"].includes(e.key)) { e.preventDefault(); e.stopPropagation(); move(-1); }
+    else if (["ArrowDown", "ArrowRight"].includes(e.key)) { e.preventDefault(); e.stopPropagation(); move(1); }
+    else if (e.key === "Enter") { e.preventDefault(); launch(); }
   });
-  stage.addEventListener("pointerdown", e => {
-    if (e.button) return; halt();
-    drag = { id: e.pointerId, y0: e.clientY, p0: pos, moved: false, card: e.target.closest(".wc-card"), t: performance.now(), y: e.clientY, v: 0 };
+  stage.addEventListener("pointerdown", e => { if (!e.button) sx = { x: e.clientX, y: e.clientY, id: e.pointerId }; });
+  stage.addEventListener("pointerup", e => {
+    const s0 = sx; sx = null; if (!s0 || s0.id !== e.pointerId) return;
+    const dx = e.clientX - s0.x, dy = e.clientY - s0.y;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) return move(dx < 0 ? 1 : -1);   // deslizar cambia de mundo
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && e.target.closest(".wc-card.cur")) launch();
   });
-  stage.addEventListener("pointermove", e => {
-    if (!drag || e.pointerId !== drag.id) return;
-    const dy = e.clientY - drag.y0, stepPx = (cards[0].el.offsetHeight || 190) * .84;
-    if (!drag.moved && Math.abs(dy) > 8) { drag.moved = true; stage.classList.add("drag"); try { stage.setPointerCapture(drag.id); } catch (_) {} }
-    if (!drag.moved) return;
-    const now = performance.now(); drag.v = (e.clientY - drag.y) / Math.max(1, now - drag.t); drag.y = e.clientY; drag.t = now;
-    pos = drag.p0 - dy / stepPx; layout();
-  });
-  const endDrag = e => {
-    if (!drag || e.pointerId !== drag.id) return;
-    const d = drag; drag = null; stage.classList.remove("drag");
-    if (!d.moved) { if (d.card) { const i = +d.card.dataset.i; if (i !== cur()) go(i); else launch(); } return; }
-    const dy = e.clientY - d.y0, stepPx = (cards[0].el.offsetHeight || 190) * .84, base = Math.round(d.p0);
-    let t = Math.round(pos - d.v * 160 / stepPx); if (t === base && Math.abs(dy) > 40) t = base + (dy < 0 ? 1 : -1);
-    tween(t);
-  };
-  stage.addEventListener("pointerup", endDrag);
-  stage.addEventListener("pointercancel", e => { if (drag && e.pointerId === drag.id) { drag = null; stage.classList.remove("drag"); tween(Math.round(pos)); } });
+  stage.addEventListener("pointercancel", () => { sx = null; });
 
-  let launching = false;
-  function launch() {                                          // clic en la isla actual: el personaje salta y arranca el juego
-    const w = WORLDS[cur()], el = cards[cur()].el;
+  function launch() {                                          // clic en la isla: el personaje salta y arranca el juego
+    const w = WORLDS[cur], el = cards[cur].el;
     if (!w.game) { el.classList.remove("nope"); void el.offsetWidth; el.classList.add("nope"); return; }
     if (launching || Play.isOpen()) return; launching = true;
     Play.jumpTo(el.querySelector(".ico") || el, () => { launching = false; Play.open(w); });
   }
-  stage.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); launch(); } });
 
-  layout();
   return {
-    enter() { active = true; sel = -1; layout(); sync(); Mine.reset(); Mine.start(); },
+    enter() { active = true; sel = -1; apply(cur, 0); Mine.reset(); Mine.start(); },
     leave() { active = false; Play.close(); Game.stop(); Mine.stop(); },
     refresh() { if (active && sel >= 0) { Mine.reset(); renderRank(); } },
     playable: () => active && !!WORLDS[sel] && !!WORLDS[sel].game
