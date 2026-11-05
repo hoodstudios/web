@@ -64,30 +64,52 @@ const V = ["inicio", "proyectos", "calendario", "jugadores", "perfil", "juego", 
 function hashParts() { const [h, ...r] = location.hash.slice(1).split("/"); let a = ""; try { a = decodeURIComponent(r.join("/")); } catch (e) {} return [h, a]; }
 function refreshView() { const [h, a] = hashParts(); if (h === "jugadores") renderPlayers(); else if (h === "perfil") renderProfile(a); }
 const SUB = ["juego", "jugadores", "mercado"];      // secciones de la barra lateral (de arriba abajo)
-let prevView = null, outTimer = 0;
+let prevView = null, outTimer = 0, subIdx = -1;
+const pill = $("#subnav .sn-pill");
+/* La píldora amarilla se coloca con la posición real del icono activo (funciona igual en vertical y en horizontal) */
+function movePill(i, instant) {
+  const a = $$("#subnav a")[i]; if (!a || !pill) return;
+  if (instant) pill.style.transition = "none";
+  pill.style.transform = `translate(${a.offsetLeft}px,${a.offsetTop}px)`;
+  if (instant) { void pill.offsetWidth; pill.style.transition = ""; }
+}
+/* Jugadores: la página no hace scroll, solo la tabla. Se calcula la altura que queda libre bajo la cabecera. */
+function fitPlayers() {
+  const w = $(".plwrap"); if (!w || $("#v-jugadores").hidden) return;
+  let y = 0, el = w; while (el) { y += el.offsetTop; el = el.offsetParent; }   // offsetTop ignora las animaciones de entrada
+  w.style.height = Math.max(240, innerHeight - y - (matchMedia("(max-width:860px)").matches ? 92 : 20)) + "px";
+}
+addEventListener("resize", () => { movePill(subIdx, true); fitPlayers(); });
+if (document.fonts) document.fonts.ready.then(() => { movePill(subIdx, true); fitPlayers(); });
+const OUTSTY = ["top", "left", "width", "right", "margin", "box-sizing"];
 function route() {
   stopAvatar();
   const [h, arg] = hashParts(), cur = V.includes(h) ? h : "inicio", prev = prevView, curEl = $("#v-" + cur);
-  clearTimeout(outTimer);
-  V.forEach(v => { const e = $("#v-" + v); e.classList.remove("vin", "vout", "from-b", "from-t", "to-t", "to-b"); e.hidden = v !== cur; });
   const sub = prev && prev !== cur && SUB.includes(prev) && SUB.includes(cur), dir = sub ? Math.sign(SUB.indexOf(cur) - SUB.indexOf(prev)) : 0;
+  const prevBox = sub ? $("#v-" + prev).getBoundingClientRect() : null;   // dónde está ahora la sección que se va (antes de ocultarla)
+  clearTimeout(outTimer);
+  V.forEach(v => { const e = $("#v-" + v); e.classList.remove("vin", "vout", "from-b", "from-t", "to-t", "to-b"); OUTSTY.forEach(p => e.style.removeProperty(p)); e.hidden = v !== cur; });
   if (prev && prev !== cur) {                                 // la sección nueva entra suave; entre secciones de la barra, deslizando en vertical
     void curEl.offsetWidth; curEl.classList.add("vin", dir > 0 ? "from-b" : dir < 0 ? "from-t" : "fade");
-    if (sub) {
-      const pe = $("#v-" + prev); pe.hidden = false; pe.classList.add("vout", dir > 0 ? "to-t" : "to-b");
-      outTimer = setTimeout(() => { pe.hidden = true; pe.classList.remove("vout", "to-t", "to-b"); }, 320);
+    if (sub) {                                                // la anterior se queda congelada en su sitio y se desliza hacia fuera
+      const pe = $("#v-" + prev); pe.hidden = false;
+      Object.assign(pe.style, { top: prevBox.top + "px", left: prevBox.left + "px", width: prevBox.width + "px", right: "auto", margin: "0", boxSizing: "border-box" });
+      pe.classList.add("vout", dir > 0 ? "to-t" : "to-b");
+      outTimer = setTimeout(() => { pe.hidden = true; pe.classList.remove("vout", "to-t", "to-b"); OUTSTY.forEach(p => pe.style.removeProperty(p)); }, 340);
     }
   }
   prevView = cur;
   $$(".nav a").forEach(a => a.classList.toggle("on", a.dataset.v === (["jugadores", "perfil", "juego", "mercado"].includes(cur) ? "comunidad" : cur)));
-  const sn = $("#subnav"), si = SUB.indexOf(cur);
-  sn.hidden = false; sn.classList.toggle("show", si >= 0);   // barra fija: no se mueve, solo se ilumina la sección activa
-  if (si >= 0) sn.style.setProperty("--i", si);
+  const sn = $("#subnav"), si = SUB.indexOf(cur), was = sn.classList.contains("show");
+  sn.hidden = false; sn.classList.toggle("show", si >= 0);
+  if (si >= 0) { subIdx = si; movePill(si, !was); }            // si la barra ya estaba visible, la píldora se desliza; si no, aparece en su sitio
   $$("#subnav a").forEach((a, i) => a.classList.toggle("on", i === si));
   if (cur === "jugadores") renderPlayers();
   if (cur === "perfil") renderProfile(arg);
   if (cur === "juego") Arcade.enter(); else Arcade.leave();
   document.body.classList.toggle("noscroll", cur === "juego");
+  document.body.classList.toggle("plfix", cur === "jugadores");
+  if (cur === "jugadores") { fitPlayers(); requestAnimationFrame(fitPlayers); }
   $("#dc").hidden = cur !== "inicio"; dispatchEvent(new Event("dcsync"));
   window.scrollTo(0, 0); if (cur === "inicio") fitSub();
 }
@@ -605,31 +627,12 @@ async function renderProfile(name) {
 const WORLDS = [
   { id: "desierto", name: "Desierto", acc: "#f2c14e", img: "img/mundos/desierto.png", bg: "img/fondos/desierto.jpg",
     game: { id: "runner", name: "Desert Rush", col: "scores", field: "score", unit: "puntos" } },
-  { id: "end", name: "El End", acc: "#b57cf0", img: "img/mundos/end.png", bg: "img/fondos/end.jpg", b: .8, game: null },
-  { id: "oceano", name: "Océano", acc: "#3fd0e0", img: "img/mundos/oceano.png", bg: "img/fondos/oceano.jpg", game: null }
+  { id: "end", name: "Elytra Fly", acc: "#b57cf0", img: "img/mundos/end.png", bg: "img/fondos/end.jpg", b: .8, game: null },
+  { id: "oceano", name: "Coral Stack", acc: "#3fd0e0", img: "img/mundos/oceano.png", bg: "img/fondos/oceano.jpg", game: null }
 ];
 let selWorld = 0, rankTok = 0;
 
-/* Fila del ranking del arcade: posición · cara del jugador · nombre · puntaje */
-async function paintFace(cv) {
-  const { uid, name, avatar } = cv.dataset, g = cv.getContext("2d"); g.imageSmoothingEnabled = false;
-  const f = await figsFor(uid, name, avatar).catch(() => null);
-  if (f && f.img) {                                          // cabeza (8×8 en la skin) + capa exterior
-    const k = f.img.width / 64, h = 8 * k; cv.width = cv.height = 8;
-    g.drawImage(f.img, 8 * k, 8 * k, h, h, 0, 0, 8, 8); g.drawImage(f.img, 40 * k, 8 * k, h, h, 0, 0, 8, 8);
-    cv.classList.add("ready"); return;
-  }
-  const im = new Image(); im.onload = () => { g.clearRect(0, 0, 8, 8); g.drawImage(im, 0, 0, 8, 8); cv.classList.add("ready"); }; im.src = okAv(avatar);
-}
-const faceIO = "IntersectionObserver" in window ? new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { faceIO.unobserve(e.target); paintFace(e.target); } }), { rootMargin: "200px" }) : null;
-function arRow(o) {                                          // o: { uid, name, avatar, pos, i, mine, val }
-  const a = document.createElement("a");
-  a.className = "ar-row" + (o.pos <= 3 ? " t" + o.pos : "") + (o.mine ? " mine" : "");
-  a.href = pLink(o.name); a.dataset.uid = o.uid; a.style.setProperty("--i", Math.min(o.i || 0, 12));
-  a.innerHTML = `<b class="n">${o.pos}</b><span class="hd"><canvas width="8" height="8" data-uid="${esc(o.uid)}" data-name="${esc(o.name)}" data-avatar="${esc(o.avatar || "")}" aria-hidden="true"></canvas></span><span class="nm">${esc(o.name)}</span><span class="v">${esc(o.val)}</span>`;
-  const cv = a.querySelector("canvas"); if (o.i < 14 || !faceIO) paintFace(cv); else faceIO.observe(cv);
-  return a;
-}
+/* El ranking de cada minijuego usa las mismas filas que Jugadores (rowEl): placa de bloque, avatar de cuerpo completo y animaciones */
 async function renderRank() {
   const w = WORLDS[selWorld], box = $("#rank"), tok = ++rankTok;
   if (!w.game) { box.classList.add("end"); box.innerHTML = `<p class="empty">Este mundo aún no tiene ranking.</p>`; Mine.render(null); return; }
@@ -643,8 +646,8 @@ async function renderRank() {
     const u = me(), top = all.slice(0, 50);
     box.innerHTML = "";
     if (!top.length) box.innerHTML = `<p class="empty">Sé el primero en el ranking.</p>`;
-    top.forEach((x, i) => box.append(arRow({ uid: x.id, name: String(x.name || "?"), avatar: x.avatar, pos: i + 1, i,
-      mine: !!u && u.uid === x.id, val: nf(Math.floor(Number(x[w.game.field])) || 0) })));
+    top.forEach((x, i) => box.append(rowEl({ uid: x.id, name: String(x.name || "?"), avatar: x.avatar, pos: i + 1, i, sm: true, now: i < 10,
+      mine: !!u && u.uid === x.id, val: nf(Math.floor(Number(x[w.game.field])) || 0), unit: w.game.unit })));
     box.scrollTop = 0; box.classList.toggle("end", top.length <= 9);
     const idx = u ? all.findIndex(x => x.id === u.uid) : -1;
     let best = idx >= 0 ? Math.floor(Number(all[idx][w.game.field])) : null;
@@ -707,12 +710,79 @@ const Game = (() => {
     if (s && d && s.y >= GY - S) s.y += d;
     W = nw; H = nh; GY = ngy; cv.width = W; cv.height = H;
   }
-  const reset = () => {
-    cv.style.background = "";
-    return { y: GY - S, vy: 0, obs: [], tot: [], pts: [], speed: 5, dist: 0, next: 420, totems: 0, inv: 0, boost: 0, biome: 0, banner: 0,
-      clouds: Array.from({ length: 5 }, () => ({ x: rnd(0, W), y: rnd(20, GY * .5) })),
-      mesas: Array.from({ length: Math.ceil(W / 300) + 1 }, (_, i) => ({ x: i * 300 + rnd(0, 120), w: rnd(120, 200), h: rnd(50, 95) })) };
-  };
+  const reset = () => ({ y: GY - S, vy: 0, obs: [], tot: [], pts: [], speed: 5, dist: 0, next: 420, totems: 0, inv: 0, boost: 0, biome: 0, bt: 0, banner: 0,
+    clouds: Array.from({ length: 6 }, () => ({ x: rnd(0, W), y: rnd(16, GY * .42) })) });
+
+  /* ---- Fondo dinámico: capas con parallax que cambian con el bioma ----
+   * Desierto: dunas suaves y, en la capa más lejana, siluetas de cactus.   Meseta: mesetas de roca por capas.
+   * Para que no se confundan con los obstáculos: todo el fondo es más pequeño, va velado hacia el color del horizonte,
+   * sin verde saturado, y los cactus lejanos nunca están a la altura del suelo (viven sobre la duna lejana). */
+  const hx = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const mixc = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  const rgb = (a, al = 1) => `rgba(${a[0]},${a[1]},${a[2]},${al})`;
+  const hs = (n, sd) => { const x = Math.sin(n * 127.1 + sd * 311.7) * 43758.5453; return x - Math.floor(x); };   // azar repetible por celda
+  const PAL = [
+    { sky: ["#27356b", "#c06a4c", "#f6bd6e"].map(hx), hz: hx("#f6bd6e"), sun: hx("#fff0b8"), dune: ["#dcae63", "#cc9849", "#b9843c"].map(hx), cac: hx("#8d7c52") },
+    { sky: ["#2a0d14", "#8f3a22", "#e8894a"].map(hx), hz: hx("#e8894a"), sun: hx("#ffb479"), rock: ["#a9573b", "#8c4531", "#74372a"].map(hx), grd: hx("#b5541c") }
+  ];
+  const ridge = (x, base, amp, wl, sd) => base - amp * (.5 + .5 * (.6 * Math.sin(x / wl + sd) + .4 * Math.sin(x / (wl * .47) + sd * 2.3)));
+  function saguaro(x, y, h, col, al) {                        // silueta de cactus lejano (azul-pardo velado, no verde)
+    const t = Math.max(3, Math.round(h * .2)), a = Math.round(h * .3);
+    c.globalAlpha = al; c.fillStyle = rgb(col);
+    c.fillRect(x, y - h, t, h);
+    c.fillRect(x - a, y - h * .55, a + t, t); c.fillRect(x - a, y - h * .55 - a, t, a + t);
+    c.fillRect(x, y - h * .38, a + t, t); c.fillRect(x + a, y - h * .38 - a * .8, t, a * .8 + t);
+  }
+  function dunes(f, base, amp, wl, sd, col, al, cac) {
+    const sc = s.dist * f; c.globalAlpha = al; c.fillStyle = rgb(col);
+    c.beginPath(); c.moveTo(-8, GY + 2);
+    for (let x = -8; x <= W + 8; x += 8) c.lineTo(x, ridge(x + sc, base, amp, wl, sd));
+    c.lineTo(W + 8, GY + 2); c.closePath(); c.fill();
+    c.globalAlpha = al * .5; c.strokeStyle = "rgba(255,235,190,.5)"; c.lineWidth = 2; c.beginPath();      // brillo en la cresta
+    for (let x = -8; x <= W + 8; x += 8) { const y = ridge(x + sc, base, amp, wl, sd); x === -8 ? c.moveTo(x, y) : c.lineTo(x, y); } c.stroke();
+    if (cac) { const C = 190; for (let k = Math.floor(sc / C) - 1; k <= Math.floor((sc + W) / C) + 1; k++) {
+      if (hs(k, sd) < .45) continue; const wx = k * C + hs(k, sd + 1) * C * .7, x = Math.round(wx - sc);
+      if (x < -40 || x > W + 40) continue; saguaro(x, ridge(wx, base, amp, wl, sd) + 2, 14 + hs(k, sd + 2) * 16, cac, al * .9); } }
+    c.globalAlpha = 1;
+  }
+  function mesas(f, h0, h1, w0, w1, cell, sd, col, al) {
+    const sc = s.dist * f; c.globalAlpha = al;
+    for (let k = Math.floor(sc / cell) - 1; k <= Math.floor((sc + W) / cell) + 1; k++) {
+      const r1 = hs(k, sd), r2 = hs(k, sd + 1), r3 = hs(k, sd + 2), w = Math.round(w0 + r1 * (w1 - w0)), h = Math.round(h0 + r2 * (h1 - h0));
+      const x = Math.round(k * cell + r3 * (cell - w) * .9 - sc); if (x > W + 4 || x + w < -4) continue;
+      c.fillStyle = rgb(col); c.fillRect(x, GY - h, w, h + 2);
+      const bw = Math.round(w * (.35 + .2 * r2)), bh = Math.round(h * .26); c.fillRect(x + Math.round((w - bw) * r3), GY - h - bh, bw, bh + 1);   // cima escalonada
+      c.fillStyle = "rgba(0,0,0,.13)"; for (let y = GY - h * .7; y < GY; y += h * .24) c.fillRect(x, Math.round(y), w, Math.max(2, Math.round(h * .07)));   // estratos
+      c.fillStyle = "rgba(255,215,170,.2)"; c.fillRect(x, GY - h, w, 3);
+    }
+    c.globalAlpha = 1;
+  }
+  function drawBG() {
+    const A = PAL[0], B = PAL[1], t = s.bt, hz = mixc(A.hz, B.hz, t);
+    const g = c.createLinearGradient(0, 0, 0, GY); [0, .55, 1].forEach((p, i) => g.addColorStop(p, rgb(mixc(A.sky[i], B.sky[i], t))));
+    c.fillStyle = g; c.fillRect(0, 0, W, H);
+    const sx = Math.round(W * .74), sy = Math.round(GY * (.3 + .16 * t)), sc = mixc(A.sun, B.sun, t);        // sol cuadrado (estilo Minecraft) con halo
+    const halo = c.createRadialGradient(sx, sy, 8, sx, sy, 130); halo.addColorStop(0, rgb(sc, .45)); halo.addColorStop(1, rgb(sc, 0));
+    c.fillStyle = halo; c.fillRect(sx - 130, sy - 130, 260, 260); c.fillStyle = rgb(sc); c.fillRect(sx - 20, sy - 20, 40, 40);
+    c.fillStyle = `rgba(255,${Math.round(255 - 55 * t)},${Math.round(255 - 105 * t)},.15)`;                 // nubes de bloques
+    s.clouds.forEach(cl => { c.fillRect(Math.round(cl.x), Math.round(cl.y), 72, 8); c.fillRect(Math.round(cl.x) + 14, Math.round(cl.y) - 8, 40, 8); });
+    if (t < .99) {                                                                                         // DESIERTO (se desvanece al cambiar de bioma)
+      const k = 1 - t, d = A.dune.map((col, i) => mixc(col, hz, [.6, .32, .1][i]));
+      dunes(.07, GY - 74, 30, 230, 1.7, d[0], k, mixc(A.cac, hz, .35));
+      dunes(.16, GY - 40, 22, 150, 4.2, d[1], k, null);
+      dunes(.32, GY - 12, 14, 100, 7.9, d[2], k, null);
+    }
+    if (t > .01) {                                                                                         // MESETA
+      const r = B.rock.map((col, i) => mixc(col, hz, [.6, .3, .1][i]));
+      mesas(.07, 70, 120, 150, 270, 360, 3, r[0], t);
+      mesas(.16, 44, 80, 110, 190, 270, 8, r[1], t);
+      mesas(.32, 14, 28, 60, 110, 170, 13, r[2], t);
+    }
+    c.fillStyle = rgb(mixc(hx("#d9ca9a"), B.grd, t)); c.fillRect(0, GY, W, H - GY);                      // suelo
+    const fl = IMG[s.biome ? "arena-roja" : "arena"]; c.globalAlpha = .85;
+    for (let y = GY; y < H; y += 40) for (let x = -(s.dist % 40); x < W; x += 40) if (ok(fl)) c.drawImage(fl, x, y, 40, 40);
+    c.globalAlpha = 1; c.fillStyle = "rgba(0,0,0,.3)"; c.fillRect(0, GY, W, 3);                          // línea del suelo: separa fondo y pista
+  }
   /* El personaje es el avatar Drop del jugador (con su skin); si no ha iniciado sesión, el Steve por defecto */
   async function loadFace() {
     const u = me(), key = u ? u.uid + "|" + u.avatar : "guest";
@@ -735,7 +805,8 @@ const Game = (() => {
   function parts(k) { s.pts.forEach(q => { q.x += q.vx * k; q.y += q.vy * k; q.vy += .25 * k; q.l -= k; }); s.pts = s.pts.filter(q => q.l > 0); }
   function update(k) {
     const bi = s.dist / 10 >= BIOME_AT ? 1 : 0;
-    if (bi !== s.biome) { s.biome = bi; s.banner = 170; cv.style.background = "linear-gradient(#3a1606,#000)"; }
+    if (bi !== s.biome) { s.biome = bi; s.banner = 170; }
+    s.bt += (s.biome - s.bt) * Math.min(1, .02 * k);        // transición suave de un bioma a otro
     // velocidad: sube despacio y se detiene en un tope, para que siempre sea cuestión de habilidad
     s.speed = Math.min(bi ? 11.5 : 10.5, 5 + s.dist / 6000);
     const v = s.speed * k; s.dist += v;
@@ -749,7 +820,6 @@ const Game = (() => {
     }
     s.obs.forEach(o => o.x -= v); s.tot.forEach(t => t.x -= v);
     s.clouds.forEach(cl => { cl.x -= .4 * k; if (cl.x < -60) { cl.x = W + 20; cl.y = rnd(20, GY * .5); } });
-    s.mesas.forEach(m => { m.x -= 1.2 * k; if (m.x + m.w < 0) { m.x = W + rnd(0, 100); m.w = rnd(120, 200); m.h = rnd(50, 95); } });
     s.obs = s.obs.filter(o => o.x > -30); s.tot = s.tot.filter(t => t.x > -40);
     const p = { x: 64, y: s.y + 4, w: S - 8, h: S - 8 };
     s.tot = s.tot.filter(t => { if (hit(p, t)) { s.totems = Math.min(MAXT, s.totems + 1); burst(t.x + 13, t.y + 13, ["#e8b923", "#2e9e4a", "#fff6c4"], 22); return false; } return true; });
@@ -780,11 +850,7 @@ const Game = (() => {
   }
   function draw() {
     c.clearRect(0, 0, W, H); c.imageSmoothingEnabled = false;
-    if (s.biome) { c.fillStyle = "rgba(190,90,30,.25)"; s.mesas.forEach(m => { c.fillRect(m.x, GY - m.h, m.w, m.h); }); c.fillStyle = "rgba(220,120,50,.4)"; s.mesas.forEach(m => c.fillRect(m.x, GY - m.h, m.w, 4)); }
-    else { c.fillStyle = "rgba(247,180,30,.07)"; s.clouds.forEach(cl => c.fillRect(cl.x, cl.y, 56, 14)); }
-    const fl = IMG[s.biome ? "arena-roja" : "arena"]; c.globalAlpha = .75;
-    for (let y = GY; y < H; y += 40) for (let x = -(s.dist % 40); x < W; x += 40) { if (ok(fl)) c.drawImage(fl, x, y, 40, 40); else { c.fillStyle = s.biome ? "#b5541c" : "#d9ca9a"; c.fillRect(x, y, 40, 40); } }
-    c.globalAlpha = 1;
+    drawBG();
     s.obs.forEach(o => {
       for (let i = 0; i < o.n; i++) { if (ok(IMG.cactus)) c.drawImage(IMG.cactus, o.x, GY - (i + 1) * B, B, B); else { c.fillStyle = "#3f9b2a"; c.fillRect(o.x, GY - (i + 1) * B, B, B); } }
       if (o.fl && ok(IMG.flor)) c.drawImage(IMG.flor, o.x, GY - o.h - B, B, B);
@@ -793,13 +859,15 @@ const Game = (() => {
     if (st !== "over" && (s.inv <= 0 || Math.floor(s.inv / 4) % 2)) player();
     if (st === "over") { c.globalAlpha = .4; player(); c.globalAlpha = 1; }
     s.pts.forEach(q => { c.fillStyle = q.c; c.globalAlpha = Math.min(1, q.l / 20); c.fillRect(q.x, q.y, 4, 4); }); c.globalAlpha = 1;
+    c.shadowColor = "rgba(0,0,0,.6)"; c.shadowBlur = 6;
     c.fillStyle = "#f5ecd6"; c.font = "700 16px 'Noto Sans', sans-serif"; c.textAlign = "right"; c.fillText(String(Math.floor(s.dist / 10)).padStart(5, "0"), W - 16 - 64 / SC, 28);
     for (let i = 0; i < s.totems; i++) if (ok(IMG.totem)) c.drawImage(IMG.totem, 14 + i * 26, 10, 22, 22);
     c.textAlign = "center"; c.fillStyle = "#f7b41e";
     if (s.banner > 0) { c.globalAlpha = Math.min(1, s.banner / 40); c.font = "800 22px 'Noto Sans', sans-serif"; c.fillText("Desierto meseta", W / 2, GY * .35); c.globalAlpha = 1; }
     c.font = "700 16px 'Noto Sans', sans-serif";
     if (st === "idle") c.fillText("Pulsa espacio o toca para empezar", W / 2, GY * .55);
-    if (st === "over") { c.font = "800 24px 'Noto Sans', sans-serif"; c.fillText("Fin del juego", W / 2, GY * .48); c.font = "500 15px 'Noto Sans', sans-serif"; c.fillStyle = "#a89a70"; c.fillText(me() ? "Pulsa para reintentar" : "Inicia sesión para guardar tu puntaje", W / 2, GY * .58); }
+    if (st === "over") { c.font = "800 24px 'Noto Sans', sans-serif"; c.fillText("Fin del juego", W / 2, GY * .48); c.font = "500 15px 'Noto Sans', sans-serif"; c.fillStyle = "#e6d9b0"; c.fillText(me() ? "Pulsa para reintentar" : "Inicia sesión para guardar tu puntaje", W / 2, GY * .58); }
+    c.shadowBlur = 0;
   }
   function loop(t) {
     const k = Math.min(2.5, (t - last) / 16.67 || 1); last = t;
@@ -822,7 +890,7 @@ const Game = (() => {
 
 /* ---------- Jugar: el personaje salta a la isla y el juego ocupa toda la ventana (sin pantalla completa del navegador) ---------- */
 const Play = (() => {
-  const gc = $("#gamecard"), bgEl = $("#gc-bg");
+  const gc = $("#gamecard");
   const isOpen = () => gc.classList.contains("open");
   function jumpTo(target, done) {
     const src = document.querySelector("#rk-me canvas");
@@ -841,7 +909,6 @@ const Play = (() => {
     requestAnimationFrame(step);
   }
   function open(w) {
-    bgEl.style.backgroundImage = `url("${w.bg}")`;
     gc.classList.add("open"); gc.setAttribute("aria-hidden", "false");
     Game.start();
   }
