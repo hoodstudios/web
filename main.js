@@ -246,7 +246,7 @@ async function loadProfile(user) {
   if (!user) return;
   try {
     const s = await getDoc(doc(db, "players", user.uid));
-    if (s.exists()) { const d = s.data(); profile = { uid: user.uid, name: d.name, avatar: okAv(d.avatar), medalIds: Array.isArray(d.medalIds) ? d.medalIds : [] }; }
+    if (s.exists()) { const d = s.data(); profile = { uid: user.uid, name: d.name, avatar: okAv(d.avatar), medalIds: Array.isArray(d.medalIds) ? d.medalIds : [], xp: Math.floor(Number(d.xp)) || 0, coins: Number(d.coins ?? d.monedas) || 0 }; }
   } catch (e) { console.warn(e); }
 }
 async function signUp(name, pw, prem, file) {
@@ -260,7 +260,7 @@ async function signUp(name, pw, prem, file) {
     try { await setDoc(doc(db, "players", cred.user.uid), { name, avatar, medalIds: [], createdAt: serverTimestamp() }); }
     catch (e) { try { await deleteUser(cred.user); } catch (_) {} return fe(e); }
     try { await setDoc(doc(db, "avatars", cred.user.uid), { skin: skinData, slim }); } catch (e) { console.warn(e); }
-    profile = { uid: cred.user.uid, name, avatar, medalIds: [] };
+    profile = { uid: cred.user.uid, name, avatar, medalIds: [], xp: 0, coins: 0 };
     return null;
   } finally { signing = false; }
 }
@@ -404,7 +404,7 @@ function rowEl(o) {                                          // o: { uid, name, 
   a.className = "prow" + (p <= 3 ? " t" + p : "") + (o.mine ? " mine" : "") + (o.sm ? " sm" : "");
   a.href = pLink(o.name); a.dataset.uid = o.uid; a.style.setProperty("--i", Math.min(o.i || 0, 14));
   a.innerHTML = `<span class="plate"><b class="pos"></b><span class="pfig"><canvas data-uid="${esc(o.uid)}" data-name="${esc(o.name)}" data-avatar="${esc(o.avatar || "")}" aria-hidden="true"></canvas></span></span>
-    <span class="pnm"><b>${esc(o.name)}</b><span class="sub"></span></span><span class="pval"></span>`;
+    <span class="pnm"><b>${esc(o.name)}</b><span class="lv"></span><span class="sub"></span></span><span class="pval"></span>`;
   a.addEventListener("animationend", e => { if (e.target === a) a.classList.add("done"); });
   setRow(a, o);
   const cv = a.querySelector("canvas"); if (o.now || !figIO) paintFig(cv); else figIO.observe(cv);
@@ -414,6 +414,7 @@ function setRow(a, o) {                                      // actualiza posici
   a.className = a.className.replace(/\bt[123]\b/g, "").trim() + (o.pos <= 3 ? " t" + o.pos : "");
   const pos = a.querySelector(".pos"); pos.textContent = o.pos; pos.dataset.l = String(o.pos).length;
   a.querySelector(".sub").textContent = o.sub || "";
+  const lv = a.querySelector(".lv"); lv.innerHTML = lvHtml(o.xp || 0); lvAnim(lv);
   a.querySelector(".pval").innerHTML = `${esc(o.val)}${o.unit ? `<small>${esc(o.unit)}</small>` : ""}`;
 }
 function flip(box, mutate) {                                 // anima el cambio de orden (FLIP)
@@ -427,18 +428,26 @@ function flip(box, mutate) {                                 // anima el cambio 
 
 /* ---------- Jugadores ---------- */
 const SORTS = [
-  { id: "medallas", label: "Medallas" }, { id: "monedas", label: "Monedas" },
+  { id: "xp", label: "Nivel de XP" }, { id: "medallas", label: "Medallas" }, { id: "monedas", label: "Monedas" },
   { id: "nuevos", label: "Más nuevos" }, { id: "antiguos", label: "Más antiguos" },
   { id: "puntuaciones", label: "Mejores puntuaciones" }
 ];
-let plSort = "medallas", plData = [], plRows = new Map();
+let plSort = "xp", plData = [], plRows = new Map();
 const coinsOf = d => Number(d.coins ?? d.monedas) || 0;
 const msOf = d => { try { return d.createdAt.toMillis(); } catch (e) { return 0; } };
 const shortDate = ts => { try { return ts.toDate().toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }); } catch (e) { return "—"; } };
 const nf = n => Number(n).toLocaleString("es-MX");
+/* Nivel de XP: empiezas en el nivel 0 y la primera barra son 100 puntos; cada nivel pide más (nivel L → L+1 = 100 + 10·L + 12·L²).
+ * Nivel 30 ≈ 110 mil XP en total (días de juego reales); nivel 100 ≈ 4 millones (posible, pero a largo plazo). */
+const xpNeed = L => 100 + 10 * L + 12 * L * L;
+const xpOf = d => Math.floor(Number(d && d.xp)) || 0;
+function xpInfo(total) { let x = Math.max(0, Math.floor(Number(total) || 0)), L = 0, n = xpNeed(0); while (x >= n && L < 999) { x -= n; L++; n = xpNeed(L); } return { lvl: L, cur: x, need: n, pct: x / n }; }
+const lvHtml = xp => { const i = xpInfo(xp); return `<em>Nv ${i.lvl}</em><i class="xbar" title="${nf(i.cur)} / ${nf(i.need)} XP"><u data-w="${(i.pct * 100).toFixed(1)}"></u></i>`; };
+const lvAnim = root => requestAnimationFrame(() => requestAnimationFrame(() => root.querySelectorAll(".xbar u").forEach(u => { u.style.width = u.dataset.w + "%"; })));
 function statOf(u, mode) {
   const med = medalCount(u), co = coinsOf(u), sc = u.score;
   switch (mode) {
+    case "xp": { const i = xpInfo(xpOf(u)); return { val: "Nv " + i.lvl, unit: nf(xpOf(u)) + " XP", sub: med + (med === 1 ? " medalla" : " medallas") }; }
     case "monedas": return { val: nf(co), unit: "monedas", sub: med + (med === 1 ? " medalla" : " medallas") };
     case "nuevos": case "antiguos": return { val: shortDate(u.createdAt), unit: mode === "nuevos" ? "se unió" : "miembro desde", sub: med + (med === 1 ? " medalla" : " medallas") };
     case "puntuaciones": return { val: sc ? nf(sc) : "—", unit: sc ? "puntos" : "sin récord", sub: med + (med === 1 ? " medalla" : " medallas") };
@@ -448,6 +457,7 @@ function statOf(u, mode) {
 function sortPlayers(list, mode) {
   const nm = (a, b) => String(a.name).localeCompare(String(b.name));
   const f = {
+    xp: (a, b) => xpOf(b) - xpOf(a) || nm(a, b),
     medallas: (a, b) => medalCount(b) - medalCount(a) || nm(a, b),
     monedas: (a, b) => coinsOf(b) - coinsOf(a) || nm(a, b),
     nuevos: (a, b) => msOf(b) - msOf(a) || nm(a, b),
@@ -461,7 +471,7 @@ function paintPlayers(animate) {
   if (!list.length) { box.innerHTML = `<p class="empty">Aún no hay jugadores registrados.</p>`; plRows.clear(); return; }
   const first = !box.querySelector(".prow"), mine = me() && me().uid;
   const apply = () => list.forEach((u, i) => {
-    const o = { uid: u.id, name: u.name, avatar: u.avatar, pos: i + 1, i, mine: u.id === mine, ...statOf(u, plSort) };
+    const o = { uid: u.id, name: u.name, avatar: u.avatar, pos: i + 1, i, mine: u.id === mine, xp: xpOf(u), ...statOf(u, plSort) };
     let el = plRows.get(u.id);
     if (!el) { el = rowEl(o); plRows.set(u.id, el); } else setRow(el, o);
     el.classList.toggle("mine", o.mine);
@@ -485,6 +495,7 @@ async function renderPlayers() {
 (() => {                                                     // menú del filtro
   const root = $("#flt"), btn = $("#flt-btn"), menu = $("#flt-menu"), lab = $("#flt-label");
   const ck = `<svg class="ck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>`;
+  lab.textContent = SORTS.find(s => s.id === plSort).label;
   menu.innerHTML = SORTS.map((s, k) => `<button class="flt-opt" type="button" role="option" data-s="${s.id}" style="--k:${k}" aria-selected="${s.id === plSort}">${s.label}${ck}</button>`).join("");
   const set = o => { root.classList.toggle("open", o); btn.setAttribute("aria-expanded", o); };
   btn.onclick = e => { e.stopPropagation(); set(!root.classList.contains("open")); };
@@ -533,7 +544,7 @@ async function renderProfile(name) {
     const md = await mdoc;
     if (tok !== profTok) return;
     stopAvatar();
-    const ids = Array.isArray(p.medalIds) ? p.medalIds : [];
+    const ids = Array.isArray(p.medalIds) ? p.medalIds : [], xpT = xpOf(p), xi = xpInfo(xpT);
     box.innerHTML = `
       <div class="card prof">
         <img class="pface" src="${esc(okAv(p.avatar))}" alt="Cabeza de ${esc(p.name)}">
@@ -550,6 +561,9 @@ async function renderProfile(name) {
           </form>` : ""}
         </div>
       </div>
+      <div class="card lvcard"><div class="lvbig"><small>Nivel</small><b>${xi.lvl}</b></div>
+        <div class="lvmain"><div class="xbar big"><u data-w="${(xi.pct * 100).toFixed(1)}"></u></div>
+          <p class="muted">${nf(xi.cur)} / ${nf(xi.need)} XP para el nivel ${xi.lvl + 1} · ${nf(xpT)} XP en total</p></div></div>
       <h3 class="sec">Avatar</h3>
       <div class="card avatarbox">
         <canvas id="acv" role="img" aria-label="Avatar de ${esc(p.name)} en su habitación"></canvas>
@@ -571,6 +585,7 @@ async function renderProfile(name) {
       </div>` : ""}
       <h3 class="sec">Récords</h3>
       <div class="records">${recs.map(([g, v]) => `<div class="card rec"><h4>${esc(g.name)}</h4>${v === null ? `<span class="muted">Sin récord aún</span>` : `<div class="big">${v} <small>${esc(g.unit)}</small></div>`}</div>`).join("")}</div>`;
+    lvAnim(box);
     const mw = $("#medals");
     ids.forEach(id => {
       const m = MEDALS[id] || { name: String(id), desc: "", img: "" };
@@ -643,11 +658,13 @@ async function renderRank() {
     catch (e) { console.warn("ranking: consulta ordenada falló, ordeno en el navegador", e); docs = (await getDocs(query(collection(db, w.game.col), limit(200)))).docs; }
     if (tok !== rankTok) return;
     const all = docs.map(d => ({ id: d.id, ...d.data() })).filter(x => Number(x[w.game.field]) > 0).sort((a, b) => Number(b[w.game.field]) - Number(a[w.game.field]));
+    const xps = new Map(); try { (await getDocs(query(collection(db, "players"), limit(300)))).docs.forEach(d => xps.set(d.id, xpOf(d.data()))); } catch (e) { /* sin niveles */ }
+    if (tok !== rankTok) return;
     const u = me(), top = all.slice(0, 50);
     box.innerHTML = "";
     if (!top.length) box.innerHTML = `<p class="empty">Sé el primero en el ranking.</p>`;
     top.forEach((x, i) => box.append(rowEl({ uid: x.id, name: String(x.name || "?"), avatar: x.avatar, pos: i + 1, i, sm: true, now: i < 10,
-      mine: !!u && u.uid === x.id, val: nf(Math.floor(Number(x[w.game.field])) || 0), unit: w.game.unit })));
+      mine: !!u && u.uid === x.id, xp: xps.get(x.id) || 0, val: nf(Math.floor(Number(x[w.game.field])) || 0), unit: w.game.unit })));
     box.scrollTop = 0; box.classList.toggle("end", top.length <= 9);
     const idx = u ? all.findIndex(x => x.id === u.uid) : -1;
     let best = idx >= 0 ? Math.floor(Number(all[idx][w.game.field])) : null;
@@ -682,10 +699,10 @@ const Mine = (() => {
       const u = me(); if (!d) { box.hidden = true; return; } box.hidden = false;
       const g = WORLDS[selWorld].game, sig = (u ? u.uid : "guest") + "|" + (u && u.avatar);
       const sub = !u ? "Inicia sesión para entrar al ranking" : d.pos ? "Puesto #" + d.pos : d.best ? "Fuera del top 200" : "Aún sin récord";
-      box.innerHTML = `<div class="rec"><small>Record</small><b>${d.best ? nf(d.best) : "—"}</b><span>${sub}</span></div>
+      box.innerHTML = `<div class="rec"><small>Record</small><b>${d.best ? nf(d.best) : "—"}</b><span>${sub}</span>${u ? `<div class="lv">${lvHtml(u.xp || 0)}</div>` : ""}</div>
         <div class="you"><canvas aria-hidden="true"></canvas></div>
         <p class="rk-note" id="rk-note" hidden></p>`;
-      cv = box.querySelector("canvas");
+      lvAnim(box); cv = box.querySelector("canvas");
       if (sig !== shown || !set) { shown = sig; set = null; load(u); } else last = -1;
       if (!raf) raf = requestAnimationFrame(loop);
     },
@@ -726,6 +743,8 @@ const Game = (() => {
   let W = 800, H = 380, GY = 258, SC = 1;                     // el mundo se adapta a la ventana: W×H lógicos, SC = escala en pantalla
   const IMG = {}; ["totem", "cactus", "flor", "arena", "arena-roja"].forEach(n => { const i = new Image(); i.src = "img/" + n + ".png"; IMG[n] = i; });
   const ok = i => i.complete && i.naturalWidth > 0;
+  const TOUCH = matchMedia("(pointer:coarse)").matches;
+  let best = 0, bestKey = "";
   let raf = 0, last = 0, st = "idle", s, figs = null, figKey = "", figTok = 0, aT = 0, aAir = false, overAt = 0, py0 = null;
   const rnd = (a, b) => a + Math.random() * (b - a);
   function fit() {                                           // el lienzo ocupa toda la ventana (altura lógica ≈380, ancho mínimo 480)
@@ -737,6 +756,8 @@ const Game = (() => {
   const reset = () => ({ y: GY - S, vy: 0, obs: [], gaps: [], arrows: [], tot: [], coin: [], pts: [], speed: 5, dist: 0, next: 420,
     totems: 0, inv: 0, boost: 0, dash: 0, hold: 0, holding: false, fast: false, buf: 0, fall: false, shake: 0,
     biome: 0, bt: 0, banner: 0, bname: "", bxp: 0, mile: 0, xp: 0, coins: 0, pxp: 0, pcn: 0,
+    dj: 0, djFade: 0, ja: 99, pop: 0, flash: 0, recT: 0, recDone: false, lvUp: 0, lvTxt: "", gainT: 0, gainN: 0, xpGlow: 0,
+    base: (me() && me().xp) || 0, xpShow: (me() && me().xp) || 0,
     clouds: Array.from({ length: 6 }, () => ({ x: rnd(0, W), y: rnd(16, GY * .42) })) });
 
   /* ---- Sprites pixel art (estilo Minecraft Java): cada píxel del dibujo = 3 unidades del mundo ---- */
@@ -752,7 +773,7 @@ const Game = (() => {
     parched: mk(["KKKKKK", "KEKKEK", "KKKKKK", "KTTTTK", "SSRRSS", "S.RR.S", "S.SS.S", "S.RR.S", "..SS..", "SS..SS", "SS..SS", "TT..TT"],
       { K: "#ddd4b2", E: "#2a2418", R: "#b9b08c", S: "#cfc6a2", T: "#8d855f" }),
     camel: mk(["................", "CCC.............", "CECN............", "CCCNN....DDD....", "..CNN...DDDDD...", "...NNCCCCCCCCCCT", "...CCCCCCCCCCCCT", "...CCCCCCCCCCCC.", "...CCCCCCCCCCCC.", "...LL.LL..LL.LL.", "...LL.LL..LL.LL.", "...LL.LL..LL.LL."],
-      { C: "#cfa75a", D: "#b88d42", L: "#a47a36", N: "#cfa75a", E: "#2a2118", T: "#b88d42" }),
+      { C: "#cfa75a", D: "#b88d42", L: "#a47a36", N: "#cfa75a", E: "#2a2118", T: "#b88d42" }, 4),
     cart: mk(cartRows, cartPal),
     tnt: mk(["RRRRRRRRRR", "WWWWWWWWWW", "WKWKKWKWKW", "RRRRRRRRRR", ...cartRows], { ...cartPal, R: "#d23a22" }),
     bat0: mk(["B.......B", "BB.B.B.BB", "BBBBBBBBB", ".BBBBBBB.", "..BrBrB.."], { B: "#3a2f45", r: "#e04a4a" }),
@@ -894,10 +915,23 @@ const Game = (() => {
   }
   async function flush() {                                    // guarda lo ganado en la partida (XP y monedas) en el perfil del jugador
     if (!s) return; const xp = s.pxp, cn = s.pcn; s.pxp = 0; s.pcn = 0; const u = me(); if (!u || (!xp && !cn)) return;
-    try { await updateDoc(doc(db, "players", u.uid), { xp: increment(xp), coins: increment(cn), coinWin_runner: cs.win, coinN_runner: cs.n }); }
-    catch (e) { console.warn("No se pudo guardar XP/monedas:", e); Mine.note(`No se pudo guardar tu XP/monedas${e && e.code ? " (" + e.code + ")" : ""}.`); }
+    u.xp = (u.xp || 0) + xp; u.coins = (u.coins || 0) + cn;
+    const data = { xp: increment(xp) }; if (cn) Object.assign(data, { coins: increment(cn), coinWin_runner: cs.win, coinN_runner: cs.n });   // la ventana de monedas solo se envía si hubo monedas
+    try { await updateDoc(doc(db, "players", u.uid), data); Arcade.refresh(); }
+    catch (e) { u.xp -= xp; u.coins -= cn; console.warn("No se pudo guardar XP/monedas:", e); Mine.note(`No se pudo guardar tu XP/monedas${e && e.code ? " (" + e.code + ")" : ""}.`); }
   }
-  const gainXP = n => { s.xp += n; s.pxp += n; };
+  async function loadBest() {                                 // tu récord anterior: con él se decide el color dorado y el aviso de nuevo récord
+    const u = me(), key = u ? u.uid : "guest"; if (key !== bestKey) { best = 0; bestKey = key; }
+    let b = 0;
+    if (u) { try { const d = await getDoc(doc(db, "scores", u.uid)); if (d.exists()) b = Math.floor(Number(d.data().score)) || 0; } catch (e) { /* sin récord */ } }
+    else { try { b = Number(localStorage.getItem("hood_runner_best")) || 0; } catch (e) { /* sin almacenamiento */ } }
+    if (key === bestKey) best = Math.max(best, b);
+  }
+  const gainXP = n => {
+    const a = xpInfo(s.base + s.xp).lvl; s.xp += n; s.pxp += n; s.gainN += n; s.gainT = 60; s.xpGlow = 30;
+    const b = xpInfo(s.base + s.xp).lvl;
+    if (b > a) { s.lvUp = 150; s.lvTxt = "¡Nivel " + b + "!"; s.pop = Math.max(s.pop, 30); burst(80, s.y + 10, ["#b8f046", "#e6ff9a", "#ffffff", "#8fe03a"], 44); }
+  };
   function takeCoin() { const q = csFresh(); if (q.n >= COIN_MAX) return false; if (!q.win) q.win = Date.now(); q.n++; s.coins++; s.pcn++; csSave(); return true; }
 
   /* El personaje es el avatar Drop del jugador (con su skin); si no ha iniciado sesión, el Steve por defecto */
@@ -916,11 +950,13 @@ const Game = (() => {
   function burst(x, y, cols, n) { for (let i = 0; i < n; i++) s.pts.push({ x, y, vx: rnd(-4, 4), vy: rnd(-5, 1), l: rnd(25, 50), c: cols[i % cols.length] }); }
 
   /* ---- Entrada: saltar (mantener = más alto) y caída rápida ---- */
-  function doJump() { s.vy = -9.8; s.hold = 0; s.buf = 0; burst(80, GY, ["#7a6a40", "#a89a70"], 6); }
+  function doJump(air) { s.vy = -9.8; s.hold = 0; s.buf = 0; s.ja = 0; if (!air) burst(80, GY, ["#7a6a40", "#a89a70"], 6); }
   function press() {
-    if (st === "idle" || st === "over") { if (st === "over" && performance.now() - overAt < 450) return; s = reset(); st = "run"; csLoad(); csRemote(); return; }
+    if (st === "idle" || st === "over") { if (st === "over" && performance.now() - overAt < 450) return; s = reset(); st = "run"; csLoad(); csRemote(); loadBest(); return; }
     s.holding = true;
-    if (s.y >= GY - S - .5 && !s.fall) doJump(); else s.buf = 8;           // si aún estás en el aire, el salto se guarda unos instantes
+    if (s.y >= GY - S - .5 && !s.fall) doJump();
+    else if (!s.fall && s.boost <= 0 && s.dj <= 0) { doJump(true); s.dj = 180; s.djFade = 0; burst(80, s.y + S, ["#ffffff", "#cfe9ff", "#a8d4ff"], 12); }   // doble salto: se recarga en 3 s
+    else s.buf = 8;                                                        // sin doble salto disponible: el salto se guarda unos instantes
   }
   const release = () => { if (s) s.holding = false; };
   const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -931,7 +967,7 @@ const Game = (() => {
     switch (o.t) {
       case "cactus": return [{ x: o.x + 2, y: GY - o.h, w: B - 4, h: o.h }];
       case "husk": return [{ x: o.x + 3, y: GY - 36, w: 12, h: 36 }, { x: o.x - 20, y: GY - 25, w: 20, h: 5 }];
-      case "camel": return [{ x: o.x + 5, y: GY - 34, w: 38, h: 34 }];
+      case "camel": return [{ x: o.x + 7, y: GY - 46, w: 50, h: 46 }];
       case "parched": return [{ x: o.x + 3, y: GY - 36, w: 12, h: 36 }];
       case "cart": return [{ x: o.x + 2, y: GY - 19, w: o.w - 4, h: 19 }];
       case "tnt": return [{ x: o.x + 2, y: GY - 32, w: o.w - 4, h: 32 }];
@@ -939,12 +975,15 @@ const Game = (() => {
     }
     return [];
   }
-  function die() { st = "over"; overAt = performance.now(); burst(80, s.y + 18, ["#f7b41e", "#ff8a3d", "#fff"], 36); saveScore(Math.floor(s.dist / 10)); flush(); }
+  function die() { st = "over"; overAt = performance.now(); burst(80, s.y + 18, ["#f7b41e", "#ff8a3d", "#fff"], 36);
+    const sc = Math.floor(s.dist / 10); if (sc > best) best = sc;
+    if (!me()) { try { localStorage.setItem("hood_runner_best", String(best)); } catch (e) { /* sin almacenamiento */ } }
+    saveScore(sc); flush(); }
   function hurt(rm) {                                          // golpe: el tótem de inmortalidad lo absorbe
     if (s.totems > 0) { s.totems--; s.inv = 60; burst(80, s.y + 18, ["#e8b923", "#2e9e4a", "#fff6c4", "#ffffff"], 50); if (rm) rm(); return true; }
     die(); return false;
   }
-  function launch(x, y, cols) { s.vy = -16.5; s.boost = 70; s.dash = 40; s.hold = 99; s.fall = false; burst(x, y, cols, 30); }
+  function launch(x, y, cols) { s.vy = -16.5; s.boost = 70; s.dash = 40; s.hold = 99; s.fall = false; s.fast = false; burst(x, y, cols, 30); }
 
   function spawn() {
     const pool = POOL[Math.min(s.biome, POOL.length - 1)], tot = pool.reduce((a, q) => a + q[1], 0), sp = s.speed, x = W + 20;
@@ -956,11 +995,14 @@ const Game = (() => {
       if (Math.random() < .2) s.obs.push({ t: "tnt", x, w: 30, h: 33 });                       // vagoneta con TNT: impulsa, pero explota
       else { const n = r < .6 ? 1 : 2; s.obs.push({ t: "cart", x, w: n * 30 + (n - 1) * 2, h: 21, n }); }
     }
-    else if (kind === "husk") { s.obs.push({ t: "husk", x, w: 18, h: 36, dv: sp * .85 + 1 }); extra = sp * 12; }   // dash al aparecer
-    else if (kind === "camel") { s.obs.push({ t: "camel", x, w: 48, h: 36 }); }
-    else if (kind === "parched") { s.obs.push({ t: "parched", x, w: 18, h: 36 }); s.arrows.push({ x: x - 8, y: GY - 24, dv: sp * .25 + .4 }); extra = sp * 14; }
+    else if (kind === "husk") { s.obs.push({ t: "husk", x, w: 18, h: 36, dv: 5.5 }); extra = sp * 12; }   // dash al aparecer
+    else if (kind === "camel") { s.obs.push({ t: "camel", x, w: 64, h: 48 }); }
+    else if (kind === "parched") {                              // la flecha sale primero y va a velocidad propia fija; el esqueleto llega ~42 fotogramas después a cualquier velocidad
+      const dv = 2.4, D = W - 72, d = Math.max(0, 42 * sp - D * dv / (sp + dv));
+      s.arrows.push({ x, y: GY - 24, dv }); s.obs.push({ t: "parched", x: x + d, w: 18, h: 36 }); extra = d + sp * 10;
+    }
     else if (kind === "pit") { const gw = Math.round(70 + sp * 8); s.gaps.push({ x, w: gw, lava: s.biome >= CAVE }); extra = gw + sp * 8; }
-    else if (kind === "bat") { s.obs.push({ t: "bat", x, w: 27, h: 15, y: GY - 125, ph: rnd(0, 6), dv: 1.5 + sp * .08 }); extra = sp * 10; }
+    else if (kind === "bat") { s.obs.push({ t: "bat", x, w: 27, h: 15, y: GY - 125, ph: rnd(0, 6), dv: 1.8 }); extra = sp * 10; }
     if (s.totems < MAXT && !s.tot.length && Math.random() < .06) s.tot.push({ x: x + rnd(90, 170), y: GY - rnd(60, 95), w: 26, h: 26 });
     if (coinsLeft() > 0 && Math.random() < .12) s.coin.push({ x: x + rnd(60, 240), y: GY - rnd(26, 110), w: 18, h: 18, ph: rnd(0, 6) });
     s.next = sp * 42 + rnd(60, 300) + extra;                     // separación mínima = tiempo de salto + margen: siempre es posible
@@ -970,19 +1012,20 @@ const Game = (() => {
   function step(k) {
     const sc = s.dist / 10; let bi = 0;
     for (let i = BIO.length - 1; i >= 0; i--) if (sc >= BIO[i].at) { bi = i; break; }
-    if (bi !== s.biome) { s.biome = bi; s.banner = 190; s.bname = BIO[bi].name; s.bxp = BIO[bi].xp; gainXP(BIO[bi].xp); }
+    if (bi !== s.biome) { s.biome = bi; s.banner = 190; s.bname = BIO[bi].name; s.bxp = BIO[bi].xp; s.pop = 40; s.flash = 26; gainXP(BIO[bi].xp); }
     if (bi === CAVE) { const m = Math.floor((sc - CAVE_AT) / 1000); if (m > s.mile) { s.mile = m; const x = 60 + 12 * m; gainXP(x); s.banner = 130; s.bname = "Mineshaft · nivel " + m; s.bxp = x; } }
     s.bt += (s.biome - s.bt) * Math.min(1, .02 * k);
     const v = s.speed * (s.dash > 0 ? 2.2 : 1) * k; s.dist += v;
+    if (!s.recDone && best > 0 && s.dist / 10 > best) { s.recDone = true; s.recT = 150; s.pop = 40; burst(80, s.y + 10, ["#ffcf33", "#fff3b0", "#ffffff"], 40); }
     // física vertical: salto variable (mantener = menos gravedad hasta un límite) y caída rápida
     const cx = 78, over = s.boost <= 0 && s.gaps.some(g => cx > g.x + 6 && cx < g.x + g.w - 6), air = s.y < GY - S - 2;
     let grav = .7; if (s.holding && s.vy < 0 && s.hold < 16) { grav = .38; s.hold += k; }
-    s.vy += grav * k;
-    if (s.fast && !s.fall && air) { if (s.vy < 10) s.vy = 10; s.vy += 1.4 * k; }
+    s.vy += grav * k; s.ja += k;
+    if (s.fast && !s.fall && air && s.boost <= 0 && s.ja > 8) { if (s.vy < 10) s.vy = 10; s.vy += 1.4 * k; }
     s.vy = Math.min(26, s.vy); s.y += s.vy * k;
     if (!over && !s.fall && s.y >= GY - S) {
       if (s.vy > 7) burst(80, GY, ["#7a6a40", "#a89a70"], 4);
-      s.y = GY - S; s.vy = 0; s.hold = 0; if (s.buf > 0) doJump();
+      s.y = GY - S; s.vy = 0; s.hold = 0; s.fast = false; s.ja = 99; if (s.buf > 0) doJump();
     } else if (over && s.y > GY - S + 6) s.fall = true;        // el suelo no está: cae por el pozo
     if (s.fall && s.y > H + 30) {
       if (s.totems > 0) {                                      // el tótem te salva: reapareces sobre suelo firme
@@ -1024,9 +1067,15 @@ const Game = (() => {
     s.speed = spdAt(s.dist / 10);
     const n = Math.max(1, Math.ceil(s.speed * (s.dash > 0 ? 2.2 : 1) * k / 6));
     for (let i = 0; i < n && st === "run"; i++) step(k / n);
-    if (s.inv > 0) s.inv -= k; if (s.banner > 0) s.banner -= k; if (s.buf > 0) s.buf -= k; if (s.shake > 0) s.shake -= k; if (s.dash > 0) s.dash -= k;
+    if (s.inv > 0) s.inv -= k; if (s.buf > 0) s.buf -= k; if (s.dash > 0) s.dash -= k; timers(k);
     if (s.boost > 0) { s.boost -= k; if (s.boost <= 0) s.inv = Math.max(s.inv, 30); }
+    if (s.dj > 0) { s.dj -= k; if (s.dj <= 0) { s.dj = 0; s.djFade = 30; } } else if (s.djFade > 0) s.djFade -= k;
     parts(k);
+  }
+  function timers(k) {                                        // animaciones de interfaz (también corren en la pantalla de muerte)
+    ["pop", "flash", "recT", "lvUp", "xpGlow", "shake", "banner"].forEach(n => { if (s[n] > 0) s[n] -= k; });
+    if (s.gainT > 0) { s.gainT -= k; if (s.gainT <= 0) s.gainN = 0; }
+    s.xpShow += (s.base + s.xp - s.xpShow) * Math.min(1, .1 * k);
   }
 
   /* ---- Dibujo ---- */
@@ -1065,7 +1114,7 @@ const Game = (() => {
       case "husk":
         c.drawImage(SP.husk, x, GY - 36); c.fillStyle = "#8a6a3a"; c.fillRect(x - 14, GY - 24, 18, 3); c.fillStyle = "#d4d4d8"; c.fillRect(x - 20, GY - 25, 6, 5); c.fillStyle = "#6f553a"; c.fillRect(x - 3, GY - 25, 3, 5);
         break;
-      case "camel": c.drawImage(SP.camel, x, GY - 36); break;
+      case "camel": c.drawImage(SP.camel, x, GY - 48); break;
       case "parched":
         c.drawImage(SP.parched, x, GY - 36); c.fillStyle = "#7a5a30"; c.fillRect(x - 6, GY - 30, 3, 21); c.fillRect(x - 3, GY - 31, 3, 3); c.fillRect(x - 3, GY - 12, 3, 3); c.fillStyle = "#e6e0d0"; c.fillRect(x - 3, GY - 28, 1, 17);
         break;
@@ -1076,6 +1125,56 @@ const Game = (() => {
         break;
       case "bat": c.drawImage(Math.floor(o.ph * 1.7) % 2 ? SP.bat1 : SP.bat0, x, Math.round(o.y)); break;
     }
+  }
+  function djBar() {                                          // barrita sutil bajo los pies: recarga del doble salto; se desvanece al llenarse
+    if (st !== "run") return; const full = s.dj <= 0; if (full && s.djFade <= 0) return;
+    const a = full ? Math.max(0, s.djFade / 30) : 1, pct = full ? 1 : 1 - s.dj / 180, x = 64, w = 28, y = Math.round(s.y + S + 6);
+    c.save(); c.shadowBlur = 0; c.globalAlpha = .5 * a; c.fillStyle = "#000"; c.fillRect(x, y, w, 3);
+    c.globalAlpha = .85 * a; c.fillStyle = full ? "#fff3b0" : "#cfe9ff"; c.fillRect(x, y, Math.round(w * pct), 3); c.restore();
+  }
+  function hud() {
+    const sc = Math.floor(s.dist / 10), gold = s.recDone, u = me(), F = " 'Noto Sans', sans-serif";
+    c.shadowColor = "rgba(0,0,0,.6)"; c.shadowBlur = 6; c.lineJoin = "round";
+    /* puntuación: grande y centrada; se infla al cambiar de bioma o superar el récord, y es dorada si ya superaste tu mejor marca */
+    const pk = 1 + .32 * Math.pow(Math.max(0, s.pop) / 40, 2), txt = String(sc).padStart(5, "0");
+    c.save(); c.translate(W / 2, 54); c.scale(pk, pk); c.textAlign = "center"; c.font = "800 46px" + F;
+    c.shadowBlur = 0; c.lineWidth = 6; c.strokeStyle = "rgba(0,0,0,.55)"; c.strokeText(txt, 0, 0);
+    c.fillStyle = gold ? "#ffcf33" : "#f5ecd6"; if (gold) { c.shadowColor = "rgba(255,190,30,.85)"; c.shadowBlur = 18; } c.fillText(txt, 0, 0); c.restore();
+    c.shadowColor = "rgba(0,0,0,.6)"; c.shadowBlur = 6; c.textAlign = "center";
+    if (st === "run" && s.recT > 0) { const ag = 150 - s.recT, z = 1 + Math.max(0, 1 - ag / 14) * .7; c.save(); c.globalAlpha = Math.min(1, s.recT / 30, ag / 6); c.translate(W / 2, 84); c.scale(z, z); c.fillStyle = "#ffcf33"; c.font = "800 18px" + F; c.fillText("¡NUEVO RÉCORD!", 0, 0); c.restore(); }
+    else if (best > 0 && st === "run") { c.font = "600 12px" + F; c.fillStyle = "rgba(245,236,214,.7)"; c.fillText("Récord " + nf(best), W / 2, 76); }
+    /* esquina: monedas, XP ganada, barra de nivel y, debajo, los tótems */
+    c.textAlign = "left"; c.font = "700 13px" + F;
+    c.drawImage(SP.coin, 14, 8, 16, 16); c.fillStyle = "#f5c93a"; c.fillText(csFresh().n + "/" + COIN_MAX, 36, 21);
+    const gl = Math.max(0, s.xpGlow) / 30; c.fillStyle = "#b8f046"; c.font = `700 ${13 + Math.round(4 * gl)}px` + F; c.fillText("+" + s.xp + " XP", 14, 42);
+    if (u) {
+      const inf = xpInfo(s.xpShow), bx = 14, by = 50, bw = 132, bh = 9;
+      c.shadowBlur = 0; c.fillStyle = "rgba(0,0,0,.55)"; c.fillRect(bx - 2, by - 2, bw + 4, bh + 4); c.fillStyle = "rgba(255,255,255,.14)"; c.fillRect(bx, by, bw, bh);
+      c.fillStyle = gl > 0 ? "#e6ff9a" : "#8fe03a"; c.fillRect(bx, by, Math.round(bw * inf.pct), bh);
+      if (gl > 0) { c.fillStyle = `rgba(255,255,255,${.5 * gl})`; c.fillRect(bx, by, Math.round(bw * inf.pct), bh); }
+      c.shadowBlur = 6; c.font = "700 11px" + F; c.fillStyle = "#e9f7c8"; c.fillText("NIVEL " + inf.lvl, bx, by + bh + 15);
+      c.textAlign = "right"; c.fillStyle = "rgba(233,247,200,.75)"; c.fillText(nf(inf.cur) + "/" + nf(inf.need), bx + bw, by + bh + 15); c.textAlign = "left";
+      if (st === "run" && s.gainT > 0 && s.gainN) { c.globalAlpha = Math.min(1, s.gainT / 20); c.fillStyle = "#b8f046"; c.font = "800 12px" + F; c.fillText("+" + s.gainN, bx + bw + 8, by + 9 - (60 - s.gainT) * .15); c.globalAlpha = 1; }
+    }
+    for (let i = 0; i < s.totems; i++) if (ok(IMG.totem)) c.drawImage(IMG.totem, 14 + i * 26, 86, 22, 22);
+    c.textAlign = "center";
+    if (st === "run" && s.banner > 0) { const ag = 190 - s.banner, z = 1 + Math.max(0, 1 - ag / 20) * .8; c.save(); c.globalAlpha = Math.min(1, s.banner / 40, ag / 6); c.translate(W / 2, GY * .46); c.scale(z, z);
+      c.fillStyle = "#f7b41e"; c.font = "800 24px" + F; c.fillText(s.bname, 0, 0); if (s.bxp) { c.font = "700 15px" + F; c.fillStyle = "#b8f046"; c.fillText("+" + s.bxp + " XP", 0, 24); } c.restore(); }
+    if (st === "run" && s.lvUp > 0) { const ag = 150 - s.lvUp, z = 1 + Math.max(0, 1 - ag / 16) * .9; c.save(); c.globalAlpha = Math.min(1, s.lvUp / 30, ag / 5); c.translate(W / 2, GY * .64); c.scale(z, z); c.fillStyle = "#b8f046"; c.font = "800 28px" + F; c.fillText(s.lvTxt, 0, 0); c.restore(); }
+    c.font = "700 16px" + F; c.fillStyle = "#f7b41e";
+    if (st === "idle") c.fillText("Pulsa espacio o toca para empezar", W / 2, GY * .55);
+    if (st === "over") {
+      const lines = TOUCH
+        ? ["Tocar: saltar (mantén = más alto)", "Deslizar hacia abajo en el aire: caer rápido", "Tocar otra vez en el aire: doble salto (recarga 3 s)", "Tótem: sobrevives a un golpe o caída"]
+        : ["Saltar: Espacio / ↑ / W (mantén = más alto)", "Caer rápido: ↓ / Shift / S (solo en el aire)", "Doble salto: pulsa otra vez en el aire (recarga 3 s)", "Tótem: sobrevives a un golpe o caída"];
+      const pw = Math.min(W - 24, 470), py = 96, ph = 118 + lines.length * 19;
+      c.shadowBlur = 0; c.fillStyle = "rgba(0,0,0,.5)"; c.fillRect(Math.round(W / 2 - pw / 2), py, pw, ph); c.shadowBlur = 6;
+      c.font = "800 24px" + F; c.fillStyle = "#f7b41e"; c.fillText("Fin del juego", W / 2, py + 32);
+      c.font = "600 15px" + F; c.fillStyle = s.recDone ? "#ffcf33" : "#b8f046"; c.fillText((s.recDone ? "¡Nuevo récord!  " : "") + "+" + s.xp + " XP" + (s.coins ? "  ·  +" + s.coins + " monedas" : ""), W / 2, py + 56);
+      c.font = "700 15px" + F; c.fillStyle = "#e6d9b0"; c.fillText(me() ? "Pulsa para reintentar" : "Inicia sesión para guardar tu puntaje, XP y monedas", W / 2, py + 80);
+      c.font = "500 13px" + F; c.fillStyle = "rgba(245,236,214,.85)"; lines.forEach((l, i) => c.fillText(l, W / 2, py + 108 + i * 19));
+    }
+    c.shadowBlur = 0;
   }
   function draw() {
     c.clearRect(0, 0, W, H); c.imageSmoothingEnabled = false;
@@ -1088,27 +1187,15 @@ const Game = (() => {
     s.coin.forEach(q => { const w = Math.max(3, Math.abs(Math.cos(s.dist / 18 + q.ph)) * 18), y = q.y + Math.sin(s.dist / 15 + q.ph) * 3; c.drawImage(SP.coin, Math.round(q.x + (18 - w) / 2), Math.round(y), w, 18); });
     if (st !== "over" && (s.inv <= 0 || Math.floor(s.inv / 4) % 2)) player();
     if (st === "over") { c.globalAlpha = .4; player(); c.globalAlpha = 1; }
+    djBar();
     s.pts.forEach(q => { c.fillStyle = q.c; c.globalAlpha = Math.min(1, q.l / 20); c.fillRect(q.x, q.y, 4, 4); }); c.globalAlpha = 1;
     c.restore();
-    c.shadowColor = "rgba(0,0,0,.6)"; c.shadowBlur = 6;
-    c.fillStyle = "#f5ecd6"; c.font = "700 16px 'Noto Sans', sans-serif"; c.textAlign = "right"; c.fillText(String(Math.floor(s.dist / 10)).padStart(5, "0"), W - 16 - 64 / SC, 28);
-    for (let i = 0; i < s.totems; i++) if (ok(IMG.totem)) c.drawImage(IMG.totem, 14 + i * 26, 10, 22, 22);
-    c.textAlign = "left"; c.font = "700 13px 'Noto Sans', sans-serif";
-    c.drawImage(SP.coin, 14, 40, 16, 16); c.fillStyle = "#f5c93a"; c.fillText(csFresh().n + "/" + COIN_MAX, 36, 53);
-    c.fillStyle = "#b8f046"; c.fillText("XP " + s.xp, 14, 74);
-    c.textAlign = "center"; c.fillStyle = "#f7b41e";
-    if (s.banner > 0) { c.globalAlpha = Math.min(1, s.banner / 40); c.font = "800 22px 'Noto Sans', sans-serif"; c.fillText(s.bname, W / 2, GY * .35);
-      if (s.bxp) { c.font = "700 15px 'Noto Sans', sans-serif"; c.fillStyle = "#b8f046"; c.fillText("+" + s.bxp + " XP", W / 2, GY * .35 + 24); } c.globalAlpha = 1; }
-    c.font = "700 16px 'Noto Sans', sans-serif"; c.fillStyle = "#f7b41e";
-    if (st === "idle") c.fillText("Pulsa espacio o toca para empezar", W / 2, GY * .55);
-    if (st === "over") { c.font = "800 24px 'Noto Sans', sans-serif"; c.fillText("Fin del juego", W / 2, GY * .48);
-      c.font = "600 15px 'Noto Sans', sans-serif"; c.fillStyle = "#b8f046"; c.fillText("+" + s.xp + " XP" + (s.coins ? "  ·  +" + s.coins + " monedas" : ""), W / 2, GY * .48 + 26);
-      c.font = "500 15px 'Noto Sans', sans-serif"; c.fillStyle = "#e6d9b0"; c.fillText(me() ? "Pulsa para reintentar" : "Inicia sesión para guardar tu puntaje, XP y monedas", W / 2, GY * .48 + 50); }
-    c.shadowBlur = 0;
+    if (s.flash > 0) { c.fillStyle = `rgba(255,255,255,${.4 * s.flash / 26})`; c.fillRect(0, 0, W, H); }
+    hud();
   }
   function loop(t) {
     const k = Math.min(2.5, (t - last) / 16.67 || 1); last = t;
-    if (st === "run") update(k); else parts(k);
+    if (st === "run") update(k); else { parts(k); timers(k); }
     aT += k / 60 * (st !== "run" ? ANIMS.idle.fps : aAir ? ANIMS.jump.fps * 1.5 : ANIMS.walk.fps * 1.5);   // andar y salto a 1,5×
     draw(); raf = requestAnimationFrame(loop);
   }
@@ -1117,7 +1204,7 @@ const Game = (() => {
   addEventListener("keydown", e => {
     if (!live()) return;
     if (UP.includes(e.code)) { e.preventDefault(); if (!e.repeat) press(); }
-    else if (DOWN.includes(e.code)) { e.preventDefault(); if (s) s.fast = true; }
+    else if (DOWN.includes(e.code)) { e.preventDefault(); if (!e.repeat && s && s.y < GY - S - 2 && !s.fall) s.fast = true; }   // solo cuenta si la pulsas estando en el aire
   });
   addEventListener("keyup", e => { if (UP.includes(e.code)) release(); else if (DOWN.includes(e.code) && s) s.fast = false; });
   const gcEl = $("#gamecard");                               // se puede tocar en cualquier punto de la pantalla: mantener = salto alto, deslizar hacia abajo = caer rápido
@@ -1129,7 +1216,7 @@ const Game = (() => {
     if (st === "run" && s && s.y < GY - S - 2) pend = setTimeout(() => { pend = 0; if (!swiped) press(); }, 90); else press();
   });
   gcEl.addEventListener("pointermove", e => {
-    if (py0 !== null && s && !swiped && e.clientY - py0 > 18) { swiped = true; clearTimeout(pend); pend = 0; s.fast = true; s.holding = false; }
+    if (py0 !== null && s && !swiped && e.clientY - py0 > 18) { swiped = true; clearTimeout(pend); pend = 0; if (s.y < GY - S - 2 && !s.fall) { s.fast = true; s.holding = false; } }
   });
   gcEl.addEventListener("contextmenu", e => e.preventDefault());
   const up = () => { py0 = null; if (pend) { clearTimeout(pend); pend = 0; if (!swiped) press(); } release(); if (s) s.fast = false; };
@@ -1138,7 +1225,7 @@ const Game = (() => {
   const begin = () => { cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(loop); };
   return {
     show() { fit(); s = s || reset(); loadFace(); begin(); },
-    start() { fit(); s = reset(); st = "run"; csLoad(); csRemote(); loadFace(); begin(); },
+    start() { fit(); s = reset(); st = "run"; csLoad(); csRemote(); loadBest(); loadFace(); begin(); },
     stop() { cancelAnimationFrame(raf); if (s) flush(); },
     refresh() { loadFace(); }
   };
