@@ -684,15 +684,21 @@ async function saveScore(score) {
 
 /* Tu sección del ranking: fija bajo la tabla, con tu personaje en animación idle */
 const Mine = (() => {
-  const box = $("#rk-me"); let set = null, raf = 0, cv = null, tok = 0, last = -1, shown = "";
+  const box = $("#rk-me"); let set = null, crop = null, raf = 0, cv = null, tok = 0, last = -1, shown = "";
   const loop = t => {
     if (cv && set) { const i = Math.floor(t / 1000 * ANIMS.idle.fps) % ANIMS.idle.frames.length;
-      if (i !== last) { last = i; const { fig } = set.get("idle", i); cv.width = fig.width; cv.height = fig.height; const g = cv.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(fig, 0, 0); } }
+      if (i !== last) { last = i; const { fig } = set.get("idle", i), [cx, cy, cw, ch] = crop || [0, 0, fig.width, fig.height]; cv.width = cw; cv.height = ch; const g = cv.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(fig, cx, cy, cw, ch, 0, 0, cw, ch); } }
     raf = requestAnimationFrame(loop);
   };
   async function load(u) {
     const k = ++tok, f = u ? await figsFor(u.uid, u.name, u.avatar) : await loadSkin(["https://minotar.net/skin/MHF_Steve", "https://mc-heads.net/skin/MHF_Steve", LOCAL_SKIN]).then(i => i && { img: i, slim: false });
-    if (k !== tok || !f) return; set = createFigureSet(f.img, { slim: f.slim, k: 3 }); last = -1;
+    if (k !== tok || !f) return; set = createFigureSet(f.img, { slim: f.slim, k: 3 }); last = -1; crop = null;
+    try {                                                     // recorte = unión de todos los fotogramas idle: sin huecos transparentes y sin saltitos
+      let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+      for (let n = 0; n < ANIMS.idle.frames.length; n++) { const fg = set.get("idle", n).fig, w = fg.width, h = fg.height, d = fg.getContext("2d").getImageData(0, 0, w, h).data;
+        for (let j = 0; j < h; j++) for (let q = 0; q < w; q++) if (d[(j * w + q) * 4 + 3] > 8) { if (q < x0) x0 = q; if (q > x1) x1 = q; if (j < y0) y0 = j; if (j > y1) y1 = j; } }
+      if (x1 >= 0) crop = [x0, y0, x1 - x0 + 1, y1 - y0 + 1];
+    } catch (e) { crop = null; }
   }
   return {
     render(d) {
@@ -720,17 +726,18 @@ const Mine = (() => {
  * Entrar a un bioma da XP (más lejos = más XP); en la Mineshaft la velocidad sube sin tope.
  * Monedas: aparecen al azar, máximo 25 por día (ventana de 24 h desde la primera). XP y monedas se guardan en players/<uid>. */
 const Game = (() => {
-  const cv = $("#cv"), c = cv.getContext("2d"), S = 36, B = 24, MAXT = 3, COIN_MAX = 25, DAY = 864e5;
+  const cv = $("#cv"), c = cv.getContext("2d"), S = 36, B = 24, CB = 32, MAXT = 3, COIN_MAX = 25, DAY = 864e5;
   const BIO = [
     { at: 0,    name: "Desierto",            xp: 0 },
-    { at: 600,  name: "Templo del desierto", xp: 40 },
-    { at: 1500, name: "Aldea del desierto",  xp: 80 },
-    { at: 2700, name: "Desierto rojo",       xp: 130 },
-    { at: 4200, name: "Mesetas",             xp: 190 },
-    { at: 6000, name: "Mineshaft",           xp: 260 }
+    { at: 5000,  name: "Templo del desierto", xp: 40 },
+    { at: 15000, name: "Aldea del desierto",  xp: 80 },
+    { at: 25000, name: "Desierto rojo",       xp: 130 },
+    { at: 35000, name: "Mesetas",             xp: 190 },
+    { at: 50000, name: "Mineshaft",           xp: 260 }
   ], CAVE = 5, CAVE_AT = BIO[CAVE].at;
-  /* Velocidad: de 5 a 10 hasta la Mineshaft (alcanzable a mano); después sube sin parar, en línea recta y suave */
-  const spdAt = sc => sc < CAVE_AT ? 5 + 5 * sc / CAVE_AT : 10 + (sc - CAVE_AT) * .0005;
+  /* Velocidad: de 5 a 10 en los primeros 6 000 puntos; después sube sin parar, en línea recta y suave */
+  const SPD_AT = 6000;                                        // la curva de velocidad es independiente de los biomas
+  const spdAt = sc => sc < SPD_AT ? 5 + 5 * sc / SPD_AT : 10 + (sc - SPD_AT) * .0005;
   /* Qué aparece en cada bioma (peso relativo): los obstáculos nuevos se van sumando */
   const POOL = [
     [["cactus", 1]],
@@ -756,7 +763,7 @@ const Game = (() => {
   const reset = () => ({ y: GY - S, vy: 0, obs: [], gaps: [], arrows: [], tot: [], coin: [], pts: [], speed: 5, dist: 0, next: 420,
     totems: 0, inv: 0, boost: 0, dash: 0, hold: 0, holding: false, fast: false, buf: 0, fall: false, shake: 0,
     biome: 0, bt: 0, banner: 0, bname: "", bxp: 0, mile: 0, xp: 0, coins: 0, pxp: 0, pcn: 0,
-    dj: 0, djFade: 0, ja: 99, pop: 0, flash: 0, recT: 0, recDone: false, lvUp: 0, lvTxt: "", gainT: 0, gainN: 0, xpGlow: 0,
+    dj: 0, djFade: 0, ja: 99, pop: 0, flash: 0, recT: 0, recDone: false, lvUp: 0, lvTxt: "", gainT: 0, gainN: 0, xpGlow: 0, fl: [], xpArr: 0,
     base: (me() && me().xp) || 0, xpShow: (me() && me().xp) || 0,
     clouds: Array.from({ length: 6 }, () => ({ x: rnd(0, W), y: rnd(16, GY * .42) })) });
 
@@ -769,15 +776,15 @@ const Game = (() => {
   const cartPal = { R: "#b9b9c2", I: "#8e8e96", G: "#4a4a52", K: "#222228", W: "#f1f1f1", T: "#c8321e", D: "#8f1f12" };
   const SP = {
     husk: mk(["HHHHHH", "HEHHEH", "HHHHHH", "HHmmHH", "CCCCCC", "HCCCCH", "DCCCCD", "DCCCCD", "PPPPPP", "PPQQPP", "PPQQPP", "BBQQBB"],
-      { H: "#9b8860", E: "#2b2218", m: "#6e5d3c", C: "#5f7f86", D: "#4d6a70", P: "#5a4a3a", Q: "#3d3126", B: "#2f261d" }),
+      { H: "#9b8860", E: "#2b2218", m: "#6e5d3c", C: "#5f7f86", D: "#4d6a70", P: "#5a4a3a", Q: "#3d3126", B: "#2f261d" }, 4),
     parched: mk(["KKKKKK", "KEKKEK", "KKKKKK", "KTTTTK", "SSRRSS", "S.RR.S", "S.SS.S", "S.RR.S", "..SS..", "SS..SS", "SS..SS", "TT..TT"],
-      { K: "#ddd4b2", E: "#2a2418", R: "#b9b08c", S: "#cfc6a2", T: "#8d855f" }),
+      { K: "#ddd4b2", E: "#2a2418", R: "#b9b08c", S: "#cfc6a2", T: "#8d855f" }, 4),
     camel: mk(["................", "CCC.............", "CECN............", "CCCNN....DDD....", "..CNN...DDDDD...", "...NNCCCCCCCCCCT", "...CCCCCCCCCCCCT", "...CCCCCCCCCCCC.", "...CCCCCCCCCCCC.", "...LL.LL..LL.LL.", "...LL.LL..LL.LL.", "...LL.LL..LL.LL."],
-      { C: "#cfa75a", D: "#b88d42", L: "#a47a36", N: "#cfa75a", E: "#2a2118", T: "#b88d42" }, 4),
-    cart: mk(cartRows, cartPal),
-    tnt: mk(["RRRRRRRRRR", "WWWWWWWWWW", "WKWKKWKWKW", "RRRRRRRRRR", ...cartRows], { ...cartPal, R: "#d23a22" }),
-    bat0: mk(["B.......B", "BB.B.B.BB", "BBBBBBBBB", ".BBBBBBB.", "..BrBrB.."], { B: "#3a2f45", r: "#e04a4a" }),
-    bat1: mk(["..BBBBB..", ".BBrBrBB.", "BBBBBBBBB", "B.B...B.B"], { B: "#3a2f45", r: "#e04a4a" }),
+      { C: "#cfa75a", D: "#b88d42", L: "#a47a36", N: "#cfa75a", E: "#2a2118", T: "#b88d42" }, 5),
+    cart: mk(cartRows, cartPal, 4),
+    tnt: mk(["RRRRRRRRRR", "WWWWWWWWWW", "WKWKKWKWKW", "RRRRRRRRRR", ...cartRows], { ...cartPal, R: "#d23a22" }, 4),
+    bat0: mk(["B.......B", "BB.B.B.BB", "BBBBBBBBB", ".BBBBBBB.", "..BrBrB.."], { B: "#3a2f45", r: "#e04a4a" }, 4),
+    bat1: mk(["..BBBBB..", ".BBrBrBB.", "BBBBBBBBB", "B.B...B.B"], { B: "#3a2f45", r: "#e04a4a" }, 4),
     coin: mk([".OOOO.", "OYYYYO", "OYwYYO", "OYYYYO", "OYYYYO", ".OOOO."], { O: "#a8730f", Y: "#f5c93a", w: "#fff3b0" })
   };
 
@@ -904,7 +911,7 @@ const Game = (() => {
 
   /* ---- Progreso: XP y monedas (límite diario por juego) ---- */
   let cs = { win: 0, n: 0 };
-  const CKEY = () => "hood_runner_coins_" + (me() ? me().uid : "guest");
+  const CKEY = () => "hood_runner_coins2_" + (me() ? me().uid : "guest");
   const csFresh = () => { if (cs.win && Date.now() - cs.win >= DAY) cs = { win: 0, n: 0 }; return cs; };
   const coinsLeft = () => COIN_MAX - csFresh().n;
   function csLoad() { try { const j = JSON.parse(localStorage.getItem(CKEY()) || "null"); cs = j && typeof j.win === "number" ? { win: j.win, n: Number(j.n) || 0 } : { win: 0, n: 0 }; } catch (e) { cs = { win: 0, n: 0 }; } }
@@ -924,14 +931,10 @@ const Game = (() => {
     const u = me(), key = u ? u.uid : "guest"; if (key !== bestKey) { best = 0; bestKey = key; }
     let b = 0;
     if (u) { try { const d = await getDoc(doc(db, "scores", u.uid)); if (d.exists()) b = Math.floor(Number(d.data().score)) || 0; } catch (e) { /* sin récord */ } }
-    else { try { b = Number(localStorage.getItem("hood_runner_best")) || 0; } catch (e) { /* sin almacenamiento */ } }
+    else { try { b = Number(localStorage.getItem("hood_runner_best2")) || 0; } catch (e) { /* sin almacenamiento */ } }
     if (key === bestKey) best = Math.max(best, b);
   }
-  const gainXP = n => {
-    const a = xpInfo(s.base + s.xp).lvl; s.xp += n; s.pxp += n; s.gainN += n; s.gainT = 60; s.xpGlow = 30;
-    const b = xpInfo(s.base + s.xp).lvl;
-    if (b > a) { s.lvUp = 150; s.lvTxt = "¡Nivel " + b + "!"; s.pop = Math.max(s.pop, 30); burst(80, s.y + 10, ["#b8f046", "#e6ff9a", "#ffffff", "#8fe03a"], 44); }
-  };
+  const gainXP = n => { s.xp += n; s.pxp += n; s.fl.push({ n, t: 0 }); };   // la XP "viaja" a la barra y se suma al llegar (ver timers)
   function takeCoin() { const q = csFresh(); if (q.n >= COIN_MAX) return false; if (!q.win) q.win = Date.now(); q.n++; s.coins++; s.pcn++; csSave(); return true; }
 
   /* El personaje es el avatar Drop del jugador (con su skin); si no ha iniciado sesión, el Steve por defecto */
@@ -965,19 +968,19 @@ const Game = (() => {
   /* ---- Cajas de colisión de cada obstáculo ---- */
   function boxes(o) {
     switch (o.t) {
-      case "cactus": return [{ x: o.x + 2, y: GY - o.h, w: B - 4, h: o.h }];
-      case "husk": return [{ x: o.x + 3, y: GY - 36, w: 12, h: 36 }, { x: o.x - 20, y: GY - 25, w: 20, h: 5 }];
-      case "camel": return [{ x: o.x + 7, y: GY - 46, w: 50, h: 46 }];
-      case "parched": return [{ x: o.x + 3, y: GY - 36, w: 12, h: 36 }];
-      case "cart": return [{ x: o.x + 2, y: GY - 19, w: o.w - 4, h: 19 }];
-      case "tnt": return [{ x: o.x + 2, y: GY - 32, w: o.w - 4, h: 32 }];
-      case "bat": return [{ x: o.x + 3, y: o.y + 3, w: 21, h: 12 }];
+      case "cactus": return [{ x: o.x + 3, y: GY - o.h, w: CB - 6, h: o.h }];
+      case "husk": return [{ x: o.x + 4, y: GY - 48, w: 16, h: 48 }, { x: o.x - 27, y: GY - 33, w: 27, h: 7 }];
+      case "camel": return [{ x: o.x + 9, y: GY - 58, w: 62, h: 58 }];
+      case "parched": return [{ x: o.x + 4, y: GY - 48, w: 16, h: 48 }];
+      case "cart": return [{ x: o.x + 2, y: GY - 25, w: o.w - 4, h: 25 }];
+      case "tnt": return [{ x: o.x + 2, y: GY - 42, w: o.w - 4, h: 42 }];
+      case "bat": return [{ x: o.x + 4, y: o.y + 4, w: 28, h: 14 }];
     }
     return [];
   }
   function die() { st = "over"; overAt = performance.now(); burst(80, s.y + 18, ["#f7b41e", "#ff8a3d", "#fff"], 36);
     const sc = Math.floor(s.dist / 10); if (sc > best) best = sc;
-    if (!me()) { try { localStorage.setItem("hood_runner_best", String(best)); } catch (e) { /* sin almacenamiento */ } }
+    if (!me()) { try { localStorage.setItem("hood_runner_best2", String(best)); } catch (e) { /* sin almacenamiento */ } }
     saveScore(sc); flush(); }
   function hurt(rm) {                                          // golpe: el tótem de inmortalidad lo absorbe
     if (s.totems > 0) { s.totems--; s.inv = 60; burst(80, s.y + 18, ["#e8b923", "#2e9e4a", "#fff6c4", "#ffffff"], 50); if (rm) rm(); return true; }
@@ -990,19 +993,19 @@ const Game = (() => {
     let r = Math.random() * tot, kind = pool[0][0], extra = 0;
     for (const q of pool) if ((r -= q[1]) < 0) { kind = q[0]; break; }
     r = Math.random();
-    if (kind === "cactus") { const n = r < .45 ? 1 : r < .85 ? 2 : 3; s.obs.push({ t: "cactus", x, w: B, h: n * B, n, fl: n < 3 && Math.random() < .07 }); }
+    if (kind === "cactus") { const n = r < .45 ? 1 : r < .85 ? 2 : 3; s.obs.push({ t: "cactus", x, w: CB, h: n * CB, n, fl: n < 3 && Math.random() < .07 }); }
     else if (kind === "cart") {
-      if (Math.random() < .2) s.obs.push({ t: "tnt", x, w: 30, h: 33 });                       // vagoneta con TNT: impulsa, pero explota
-      else { const n = r < .6 ? 1 : 2; s.obs.push({ t: "cart", x, w: n * 30 + (n - 1) * 2, h: 21, n }); }
+      if (Math.random() < .2) s.obs.push({ t: "tnt", x, w: 40, h: 44 });                       // vagoneta con TNT: impulsa, pero explota
+      else { const n = r < .6 ? 1 : 2; s.obs.push({ t: "cart", x, w: n * 40 + (n - 1) * 2, h: 28, n }); }
     }
-    else if (kind === "husk") { s.obs.push({ t: "husk", x, w: 18, h: 36, dv: 5.5 }); extra = sp * 12; }   // dash al aparecer
-    else if (kind === "camel") { s.obs.push({ t: "camel", x, w: 64, h: 48 }); }
+    else if (kind === "husk") { s.obs.push({ t: "husk", x, w: 24, h: 48, dv: 5.5 }); extra = sp * 12; }   // dash al aparecer
+    else if (kind === "camel") { s.obs.push({ t: "camel", x, w: 80, h: 60 }); }
     else if (kind === "parched") {                              // la flecha sale primero y va a velocidad propia fija; el esqueleto llega ~42 fotogramas después a cualquier velocidad
       const dv = 2.4, D = W - 72, d = Math.max(0, 42 * sp - D * dv / (sp + dv));
-      s.arrows.push({ x, y: GY - 24, dv }); s.obs.push({ t: "parched", x: x + d, w: 18, h: 36 }); extra = d + sp * 10;
+      s.arrows.push({ x, y: GY - 32, dv }); s.obs.push({ t: "parched", x: x + d, w: 24, h: 48 }); extra = d + sp * 10;
     }
-    else if (kind === "pit") { const gw = Math.round(70 + sp * 8); s.gaps.push({ x, w: gw, lava: s.biome >= CAVE }); extra = gw + sp * 8; }
-    else if (kind === "bat") { s.obs.push({ t: "bat", x, w: 27, h: 15, y: GY - 125, ph: rnd(0, 6), dv: 1.8 }); extra = sp * 10; }
+    else if (kind === "pit") { const gw = Math.round(90 + sp * 8); s.gaps.push({ x, w: gw, lava: s.biome >= CAVE }); extra = gw + sp * 8; }
+    else if (kind === "bat") { s.obs.push({ t: "bat", x, w: 36, h: 20, y: GY - 140, ph: rnd(0, 6), dv: 1.8 }); extra = sp * 10; }
     if (s.totems < MAXT && !s.tot.length && Math.random() < .06) s.tot.push({ x: x + rnd(90, 170), y: GY - rnd(60, 95), w: 26, h: 26 });
     if (coinsLeft() > 0 && Math.random() < .12) s.coin.push({ x: x + rnd(60, 240), y: GY - rnd(26, 110), w: 18, h: 18, ph: rnd(0, 6) });
     s.next = sp * 42 + rnd(60, 300) + extra;                     // separación mínima = tiempo de salto + margen: siempre es posible
@@ -1039,7 +1042,7 @@ const Game = (() => {
     s.obs.forEach(o => {
       o.x -= v;
       if (o.t === "husk") { o.x -= o.dv * k; o.dv = Math.max(.9, o.dv - .13 * k); }
-      else if (o.t === "bat") { o.x -= o.dv * k; o.ph += .12 * k; o.y = GY - 125 + Math.sin(o.ph) * 12; }
+      else if (o.t === "bat") { o.x -= o.dv * k; o.ph += .12 * k; o.y = GY - 140 + Math.sin(o.ph) * 12; }
     });
     s.arrows.forEach(a => a.x -= v + a.dv * k);
     s.tot.forEach(t => t.x -= v); s.coin.forEach(q => q.x -= v);
@@ -1051,17 +1054,17 @@ const Game = (() => {
     s.coin = s.coin.filter(q => { if (hit(p, q) && takeCoin()) { burst(q.x + 9, q.y + 9, ["#f5c93a", "#fff3b0", "#a8730f"], 12); return false; } return true; });
     if (s.fall) return;
     for (const o of s.obs) {
-      if (o.t === "cactus" && o.fl && s.boost <= 0 && hit(p, { x: o.x, y: GY - o.h - 16, w: B, h: 16 })) {      // flor: gran impulso hacia delante y arriba, no hace daño
-        o.fl = false; launch(o.x + 12, GY - o.h - 8, ["#d2708a", "#fcb0ad", "#fa8685"]); continue;
+      if (o.t === "cactus" && o.fl && s.boost <= 0 && hit(p, { x: o.x, y: GY - o.h - 21, w: CB, h: 21 })) {      // flor: gran impulso hacia delante y arriba, no hace daño
+        o.fl = false; launch(o.x + 16, GY - o.h - 10, ["#d2708a", "#fcb0ad", "#fa8685"]); continue;
       }
       if (o.t === "tnt" && s.boost <= 0 && boxes(o).some(b => hit(p, b))) {                                      // TNT: impulsa igual, pero la explosión hace daño
-        s.obs = s.obs.filter(q => q !== o); s.shake = 14; burst(o.x + 15, GY - 20, ["#ff8a3d", "#f7b41e", "#fff", "#d23a22"], 50);
-        if (s.totems > 0) { s.totems--; launch(o.x + 15, GY - 20, ["#ff8a3d", "#f7b41e"]); s.inv = 0; } else { die(); return; }
+        s.obs = s.obs.filter(q => q !== o); s.shake = 14; burst(o.x + 20, GY - 24, ["#ff8a3d", "#f7b41e", "#fff", "#d23a22"], 50);
+        if (s.totems > 0) { s.totems--; launch(o.x + 20, GY - 24, ["#ff8a3d", "#f7b41e"]); s.inv = 0; } else { die(); return; }
         break;
       }
       if (s.inv <= 0 && s.boost <= 0 && boxes(o).some(b => hit(p, b))) { if (hurt(() => { s.obs = s.obs.filter(q => q !== o); })) break; return; }
     }
-    for (const a of s.arrows) if (s.inv <= 0 && s.boost <= 0 && hit(p, { x: a.x, y: a.y, w: 24, h: 5 })) { if (hurt(() => { s.arrows = s.arrows.filter(q => q !== a); })) break; return; }
+    for (const a of s.arrows) if (s.inv <= 0 && s.boost <= 0 && hit(p, { x: a.x, y: a.y, w: 32, h: 7 })) { if (hurt(() => { s.arrows = s.arrows.filter(q => q !== a); })) break; return; }
   }
   function update(k) {
     s.speed = spdAt(s.dist / 10);
@@ -1074,8 +1077,14 @@ const Game = (() => {
   }
   function timers(k) {                                        // animaciones de interfaz (también corren en la pantalla de muerte)
     ["pop", "flash", "recT", "lvUp", "xpGlow", "shake", "banner"].forEach(n => { if (s[n] > 0) s[n] -= k; });
-    if (s.gainT > 0) { s.gainT -= k; if (s.gainT <= 0) s.gainN = 0; }
-    s.xpShow += (s.base + s.xp - s.xpShow) * Math.min(1, .1 * k);
+    for (const f of s.fl) f.t += k / 34;
+    s.fl = s.fl.filter(f => {
+      if (f.t < 1) return true;
+      const a = xpInfo(s.base + s.xpArr).lvl; s.xpArr += f.n; s.xpGlow = 30; const b = xpInfo(s.base + s.xpArr).lvl;
+      if (b > a) { s.lvUp = 150; s.lvTxt = "¡Nivel " + b + "!"; s.pop = Math.max(s.pop, 30); burst(80, s.y + 10, ["#b8f046", "#e6ff9a", "#ffffff", "#8fe03a"], 44); }
+      return false;
+    });
+    s.xpShow += (s.base + s.xpArr - s.xpShow) * Math.min(1, .12 * k);
   }
 
   /* ---- Dibujo ---- */
@@ -1108,20 +1117,20 @@ const Game = (() => {
     const x = Math.round(o.x);
     switch (o.t) {
       case "cactus":
-        for (let i = 0; i < o.n; i++) { if (ok(IMG.cactus)) c.drawImage(IMG.cactus, x, GY - (i + 1) * B, B, B); else { c.fillStyle = "#3f9b2a"; c.fillRect(x, GY - (i + 1) * B, B, B); } }
-        if (o.fl && ok(IMG.flor)) c.drawImage(IMG.flor, x, GY - o.h - B, B, B);
+        for (let i = 0; i < o.n; i++) { if (ok(IMG.cactus)) c.drawImage(IMG.cactus, x, GY - (i + 1) * CB, CB, CB); else { c.fillStyle = "#3f9b2a"; c.fillRect(x, GY - (i + 1) * CB, CB, CB); } }
+        if (o.fl && ok(IMG.flor)) c.drawImage(IMG.flor, x, GY - o.h - CB, CB, CB);
         break;
       case "husk":
-        c.drawImage(SP.husk, x, GY - 36); c.fillStyle = "#8a6a3a"; c.fillRect(x - 14, GY - 24, 18, 3); c.fillStyle = "#d4d4d8"; c.fillRect(x - 20, GY - 25, 6, 5); c.fillStyle = "#6f553a"; c.fillRect(x - 3, GY - 25, 3, 5);
+        c.drawImage(SP.husk, x, GY - 48); c.fillStyle = "#8a6a3a"; c.fillRect(x - 19, GY - 32, 24, 4); c.fillStyle = "#d4d4d8"; c.fillRect(x - 27, GY - 33, 8, 7); c.fillStyle = "#6f553a"; c.fillRect(x - 4, GY - 33, 4, 7);
         break;
-      case "camel": c.drawImage(SP.camel, x, GY - 48); break;
+      case "camel": c.drawImage(SP.camel, x, GY - 60); break;
       case "parched":
-        c.drawImage(SP.parched, x, GY - 36); c.fillStyle = "#7a5a30"; c.fillRect(x - 6, GY - 30, 3, 21); c.fillRect(x - 3, GY - 31, 3, 3); c.fillRect(x - 3, GY - 12, 3, 3); c.fillStyle = "#e6e0d0"; c.fillRect(x - 3, GY - 28, 1, 17);
+        c.drawImage(SP.parched, x, GY - 48); c.fillStyle = "#7a5a30"; c.fillRect(x - 8, GY - 40, 4, 28); c.fillRect(x - 4, GY - 42, 4, 4); c.fillRect(x - 4, GY - 16, 4, 4); c.fillStyle = "#e6e0d0"; c.fillRect(x - 4, GY - 37, 1, 22);
         break;
-      case "cart": for (let i = 0; i < o.n; i++) c.drawImage(SP.cart, x + i * 32, GY - 21); break;
+      case "cart": for (let i = 0; i < o.n; i++) c.drawImage(SP.cart, x + i * 42, GY - 28); break;
       case "tnt":
-        c.drawImage(SP.tnt, x, GY - 33);
-        if (Math.floor(s.dist / 14) % 3 === 0) { c.fillStyle = "rgba(255,255,255,.55)"; c.fillRect(x, GY - 33, 30, 12); }          // parpadeo de TNT
+        c.drawImage(SP.tnt, x, GY - 44);
+        if (Math.floor(s.dist / 14) % 3 === 0) { c.fillStyle = "rgba(255,255,255,.55)"; c.fillRect(x, GY - 44, 40, 16); }          // parpadeo de TNT
         break;
       case "bat": c.drawImage(Math.floor(o.ph * 1.7) % 2 ? SP.bat1 : SP.bat0, x, Math.round(o.y)); break;
     }
@@ -1135,28 +1144,30 @@ const Game = (() => {
   function hud() {
     const sc = Math.floor(s.dist / 10), gold = s.recDone, u = me(), F = " 'Noto Sans', sans-serif";
     c.shadowColor = "rgba(0,0,0,.6)"; c.shadowBlur = 6; c.lineJoin = "round";
-    /* puntuación: grande y centrada; se infla al cambiar de bioma o superar el récord, y es dorada si ya superaste tu mejor marca */
+    /* puntuación: centrada; se infla al cambiar de bioma o superar el récord, y es dorada si ya superaste tu mejor marca */
     const pk = 1 + .32 * Math.pow(Math.max(0, s.pop) / 40, 2), txt = String(sc).padStart(5, "0");
-    c.save(); c.translate(W / 2, 54); c.scale(pk, pk); c.textAlign = "center"; c.font = "800 46px" + F;
-    c.shadowBlur = 0; c.lineWidth = 6; c.strokeStyle = "rgba(0,0,0,.55)"; c.strokeText(txt, 0, 0);
-    c.fillStyle = gold ? "#ffcf33" : "#f5ecd6"; if (gold) { c.shadowColor = "rgba(255,190,30,.85)"; c.shadowBlur = 18; } c.fillText(txt, 0, 0); c.restore();
+    c.save(); c.translate(W / 2, 44); c.scale(pk, pk); c.textAlign = "center"; c.font = "800 36px" + F;
+    c.shadowBlur = 0; c.lineWidth = 5; c.strokeStyle = "rgba(0,0,0,.55)"; c.strokeText(txt, 0, 0);
+    c.fillStyle = gold ? "#ffcf33" : "#f5ecd6"; if (gold) { c.shadowColor = "rgba(255,190,30,.85)"; c.shadowBlur = 16; } c.fillText(txt, 0, 0); c.restore();
     c.shadowColor = "rgba(0,0,0,.6)"; c.shadowBlur = 6; c.textAlign = "center";
-    if (st === "run" && s.recT > 0) { const ag = 150 - s.recT, z = 1 + Math.max(0, 1 - ag / 14) * .7; c.save(); c.globalAlpha = Math.min(1, s.recT / 30, ag / 6); c.translate(W / 2, 84); c.scale(z, z); c.fillStyle = "#ffcf33"; c.font = "800 18px" + F; c.fillText("¡NUEVO RÉCORD!", 0, 0); c.restore(); }
-    else if (best > 0 && st === "run") { c.font = "600 12px" + F; c.fillStyle = "rgba(245,236,214,.7)"; c.fillText("Récord " + nf(best), W / 2, 76); }
-    /* esquina: monedas, XP ganada, barra de nivel y, debajo, los tótems */
+    if (st === "run" && s.recT > 0) { const ag = 150 - s.recT, z = 1 + Math.max(0, 1 - ag / 14) * .7; c.save(); c.globalAlpha = Math.min(1, s.recT / 30, ag / 6); c.translate(W / 2, 72); c.scale(z, z); c.fillStyle = "#ffcf33"; c.font = "800 16px" + F; c.fillText("¡NUEVO RÉCORD!", 0, 0); c.restore(); }
+    /* esquina: monedas, barra de nivel (con el número del nivel a la derecha) y, debajo, los tótems */
     c.textAlign = "left"; c.font = "700 13px" + F;
     c.drawImage(SP.coin, 14, 8, 16, 16); c.fillStyle = "#f5c93a"; c.fillText(csFresh().n + "/" + COIN_MAX, 36, 21);
-    const gl = Math.max(0, s.xpGlow) / 30; c.fillStyle = "#b8f046"; c.font = `700 ${13 + Math.round(4 * gl)}px` + F; c.fillText("+" + s.xp + " XP", 14, 42);
+    const gl = Math.max(0, s.xpGlow) / 30, bx = 14, by = 34, bw = 132, bh = 9;
     if (u) {
-      const inf = xpInfo(s.xpShow), bx = 14, by = 50, bw = 132, bh = 9;
+      const inf = xpInfo(s.xpShow);
       c.shadowBlur = 0; c.fillStyle = "rgba(0,0,0,.55)"; c.fillRect(bx - 2, by - 2, bw + 4, bh + 4); c.fillStyle = "rgba(255,255,255,.14)"; c.fillRect(bx, by, bw, bh);
       c.fillStyle = gl > 0 ? "#e6ff9a" : "#8fe03a"; c.fillRect(bx, by, Math.round(bw * inf.pct), bh);
       if (gl > 0) { c.fillStyle = `rgba(255,255,255,${.5 * gl})`; c.fillRect(bx, by, Math.round(bw * inf.pct), bh); }
-      c.shadowBlur = 6; c.font = "700 11px" + F; c.fillStyle = "#e9f7c8"; c.fillText("NIVEL " + inf.lvl, bx, by + bh + 15);
-      c.textAlign = "right"; c.fillStyle = "rgba(233,247,200,.75)"; c.fillText(nf(inf.cur) + "/" + nf(inf.need), bx + bw, by + bh + 15); c.textAlign = "left";
-      if (st === "run" && s.gainT > 0 && s.gainN) { c.globalAlpha = Math.min(1, s.gainT / 20); c.fillStyle = "#b8f046"; c.font = "800 12px" + F; c.fillText("+" + s.gainN, bx + bw + 8, by + 9 - (60 - s.gainT) * .15); c.globalAlpha = 1; }
+      c.shadowBlur = 6; c.font = `800 ${14 + Math.round(3 * gl)}px` + F; c.fillStyle = "#e9f7c8"; c.fillText(String(inf.lvl), bx + bw + 9, by + 10);
     }
-    for (let i = 0; i < s.totems; i++) if (ok(IMG.totem)) c.drawImage(IMG.totem, 14 + i * 26, 86, 22, 22);
+    s.fl.forEach(f => {                                       // "+N XP": aparece bajo la barra, salta hacia ella y se añade
+      const p = f.t < .3 ? 0 : (f.t - .3) / .7, y = by + 40 - 36 * p * p, z = 1.4 - .75 * p, al = f.t < .1 ? f.t / .1 : p > .85 ? (1 - p) / .15 : 1;
+      c.save(); c.globalAlpha = Math.max(0, al); c.translate(bx + bw / 2, y); c.scale(z, z); c.textAlign = "center"; c.fillStyle = "#b8f046"; c.font = "800 15px" + F; c.fillText("+" + f.n + " XP", 0, 0); c.restore();
+    });
+    c.textAlign = "left";
+    for (let i = 0; i < s.totems; i++) if (ok(IMG.totem)) c.drawImage(IMG.totem, 14 + i * 26, 54, 22, 22);
     c.textAlign = "center";
     if (st === "run" && s.banner > 0) { const ag = 190 - s.banner, z = 1 + Math.max(0, 1 - ag / 20) * .8; c.save(); c.globalAlpha = Math.min(1, s.banner / 40, ag / 6); c.translate(W / 2, GY * .46); c.scale(z, z);
       c.fillStyle = "#f7b41e"; c.font = "800 24px" + F; c.fillText(s.bname, 0, 0); if (s.bxp) { c.font = "700 15px" + F; c.fillStyle = "#b8f046"; c.fillText("+" + s.bxp + " XP", 0, 24); } c.restore(); }
@@ -1182,7 +1193,7 @@ const Game = (() => {
     drawBG();
     s.gaps.forEach(drawGap);
     s.obs.forEach(drawObs);
-    s.arrows.forEach(a => { const x = Math.round(a.x), y = Math.round(a.y); c.fillStyle = "#8a6a3a"; c.fillRect(x + 6, y + 1, 16, 3); c.fillStyle = "#cfcfd6"; c.fillRect(x, y, 6, 5); c.fillStyle = "#e6e0d0"; c.fillRect(x + 20, y, 4, 5); });
+    s.arrows.forEach(a => { const x = Math.round(a.x), y = Math.round(a.y); c.fillStyle = "#8a6a3a"; c.fillRect(x + 8, y + 2, 20, 3); c.fillStyle = "#cfcfd6"; c.fillRect(x, y, 8, 7); c.fillStyle = "#e6e0d0"; c.fillRect(x + 26, y, 6, 7); });
     s.tot.forEach(t => { const y = t.y + Math.sin(s.dist / 15) * 3; if (ok(IMG.totem)) c.drawImage(IMG.totem, t.x, y, 26, 26); else { c.fillStyle = "#e8b923"; c.fillRect(t.x, y, 26, 26); } });
     s.coin.forEach(q => { const w = Math.max(3, Math.abs(Math.cos(s.dist / 18 + q.ph)) * 18), y = q.y + Math.sin(s.dist / 15 + q.ph) * 3; c.drawImage(SP.coin, Math.round(q.x + (18 - w) / 2), Math.round(y), w, 18); });
     if (st !== "over" && (s.inv <= 0 || Math.floor(s.inv / 4) % 2)) player();
