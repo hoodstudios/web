@@ -221,7 +221,7 @@ body.plfix main{padding-bottom:0}
 .rk-me .rec b{margin:.2rem 0 .15rem;font:800 clamp(1.7rem,3vw,2.3rem)/1 "Noto Sans",system-ui,sans-serif;font-variant-numeric:tabular-nums;color:var(--y)}
 .rk-me .rec span{font-size:.75rem;color:var(--m)}
 .rk-me .you{position:relative;display:grid;place-items:end center;width:72px;height:84px}
-.rk-me canvas{height:84px;width:auto;max-width:100%;image-rendering:pixelated;filter:drop-shadow(0 4px 4px rgba(0,0,0,.45))}
+.rk-me canvas{width:100%;height:100%;object-fit:contain;object-position:center bottom;image-rendering:pixelated;filter:drop-shadow(0 4px 4px rgba(0,0,0,.45))}
 .rk-note{grid-column:1/-1;margin:.3rem 0 0;font-size:.8rem;color:#ff8a6b}
 
 /* escritorio: arcade sin scroll, menú de secciones en vertical a la izquierda */
@@ -276,3 +276,19 @@ body.plfix main{padding-bottom:0}
 @keyframes vOutT{to{opacity:0;transform:translateY(-60px)}}
 @keyframes vOutB{to{opacity:0;transform:translateY(60px)}}
 @media(prefers-reduced-motion:reduce){.view.vin.from-b,.view.vin.from-t{animation-name:vFade}}
+
+/* ---- Nivel de XP: barra y distintivo ---- */
+.xbar{position:relative;display:block;flex:1;min-width:46px;height:7px;border-radius:4px;background:rgba(255,255,255,.13);overflow:hidden}
+.xbar u{position:absolute;inset:0 auto 0 0;width:0;border-radius:inherit;background:linear-gradient(90deg,#5fd43a,#b8f046);box-shadow:0 0 8px rgba(184,240,70,.45);transition:width 1s cubic-bezier(.22,.8,.3,1)}
+.lv{display:flex;align-items:center;gap:.5rem;min-width:0;max-width:220px}
+.lv em{font:400 .72rem "Silkscreen",var(--mc);font-style:normal;color:#b8f046;letter-spacing:.06em;white-space:nowrap}
+.pnm .lv{overflow:visible}
+.rk-me .rec .lv{width:100%;max-width:150px;margin-top:.45rem}
+.lvcard{display:flex;align-items:center;gap:1.3rem;margin-top:1rem}
+.lvbig{display:flex;flex-direction:column;align-items:center;min-width:84px;line-height:1}
+.lvbig small{font:400 .8rem "Silkscreen",var(--mc);letter-spacing:.14em;text-transform:uppercase;color:#b8f046}
+.lvbig b{margin-top:.3rem;font:800 3rem/1 "Noto Sans",system-ui,sans-serif;color:var(--t);font-variant-numeric:tabular-nums}
+.lvmain{flex:1;min-width:0}
+.lvmain p{margin:.55rem 0 0;font-size:.9rem}
+.xbar.big{height:16px;border-radius:8px}
+@media(max-width:560px){.lvcard{gap:.9rem}.lvbig b{font-size:2.3rem}}
