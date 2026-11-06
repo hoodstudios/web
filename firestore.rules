@@ -1,0 +1,168 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function avatarOk(a) {
+      return a is string && a.size() < 20000 &&
+        (a.matches('https://minotar[.]net/helm/[A-Za-z0-9_]{1,16}/64[.]png') ||
+         a.matches('data:image/png;base64,.*'));
+    }
+
+    // Cuenta Admin del estudio (HOODSTUDIO). Su correo interno es siempre nombre@hoodstudio.app
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email == 'hoodstudio@hoodstudio.app';
+    }
+
+    // Perfiles: lectura pública, cada quien crea solo el suyo.
+    // El jugador SOLO puede cambiar su avatar. Las medallas las editas tú en la consola.
+    match /players/{uid} {
+      allow read: if true;
+
+      allow create: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'avatar', 'medalIds', 'createdAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.matches('[A-Za-z0-9_]{3,16}')
+        // el nombre del perfil debe corresponder a la cuenta (evita suplantar nombres)
+        && request.auth.token.email == request.resource.data.name.lower() + '@hoodstudio.app'
+        && avatarOk(request.resource.data.avatar)
+        && request.resource.data.medalIds == []
+        && request.resource.data.createdAt == request.time;
+
+      // El jugador puede cambiar su avatar, o sumar XP y monedas jugando (con topes por escritura).
+      allow update: if request.auth != null && request.auth.uid == uid
+        && (
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['avatar'])
+            && avatarOk(request.resource.data.avatar))
+          || progressOk()
+        );
+
+      allow delete: if false;
+    }
+
+    // Eventos del Calendario: todos leen, solo el Admin escribe.
+    match /events/{id} {
+      allow read: if true;
+
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['name', 'date', 'start', 'end', 'color'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && request.resource.data.date is string
+        && request.resource.data.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && request.resource.data.start is string
+        && request.resource.data.start.matches('[0-9]{2}:[0-9]{2}')
+        && request.resource.data.end is string
+        && request.resource.data.end.size() <= 5
+        && request.resource.data.color is string
+        && request.resource.data.color.matches('#[0-9a-fA-F]{6}');
+
+      allow delete: if isAdmin();
+    }
+
+    // Ranking del minijuego
+    match /scores/{uid} {
+      allow read: if true;
+
+      allow create: if validScore(uid);
+      allow update: if (validScore(uid)
+          && request.resource.data.score > resource.data.score)
+        || (request.auth != null && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['avatar'])
+          && request.resource.data.avatar == get(/databases/$(database)/documents/players/$(uid)).data.avatar);
+
+      allow delete: if false;
+    }
+
+    // Ranking de Coral Stack (mismas reglas que el otro minijuego)
+    match /scores_coral/{uid} {
+      allow read: if true;
+
+      allow create: if validScore(uid);
+      allow update: if (validScore(uid)
+          && request.resource.data.score > resource.data.score)
+        || (request.auth != null && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['avatar'])
+          && request.resource.data.avatar == get(/databases/$(database)/documents/players/$(uid)).data.avatar);
+
+      allow delete: if false;
+    }
+
+    // Skin completa del jugador (o null si es premium) y tipo de brazos.
+    match /avatars/{uid} {
+      allow read: if true;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['skin', 'slim'])
+        && request.resource.data.slim is bool
+        && (request.resource.data.skin == null
+            || (request.resource.data.skin is string
+                && request.resource.data.skin.size() < 30000
+                && request.resource.data.skin.matches('data:image/png;base64,.*')));
+      allow delete: if false;
+    }
+
+    // Correo opcional del registro. Privado: solo el dueño lo escribe/lee;
+    // tú lo ves desde la consola.
+    match /contacts/{uid} {
+      allow create: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email', 'createdAt'])
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 120
+        && request.resource.data.email.matches('[^ @]+@[^ @]+[.][^ @]{2,}')
+        && request.resource.data.createdAt == request.time;
+
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      allow update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email'])
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 120
+        && request.resource.data.email.matches('[^ @]+@[^ @]+[.][^ @]{2,}');
+
+      allow delete: if false;
+    }
+
+    // XP y monedas de los minijuegos. XP máx. 20 000 por escritura; monedas máx. 25 por juego (runner y coral)
+    // en ventanas de 24 h (la ventana solo puede renovarse pasadas 24 h). Solo sube: nunca se puede restar.
+    function progressOk() {
+      let d = request.resource.data;
+      let r = resource.data;
+      let sameWin = d.get('coinWin_runner', 0) == r.get('coinWin_runner', 0);
+      let dn = sameWin
+        ? d.get('coinN_runner', 0) - r.get('coinN_runner', 0)
+        : d.get('coinN_runner', 0);
+      let sameWinC = d.get('coinWin_coral', 0) == r.get('coinWin_coral', 0);
+      let dnc = sameWinC
+        ? d.get('coinN_coral', 0) - r.get('coinN_coral', 0)
+        : d.get('coinN_coral', 0);
+      return request.auth != null && request.auth.uid == resource.id
+        && d.diff(r).affectedKeys().hasOnly(['xp', 'coins', 'coinWin_runner', 'coinN_runner', 'coinWin_coral', 'coinN_coral'])
+        && d.get('xp', 0) is int
+        && d.get('xp', 0) >= r.get('xp', 0)
+        && d.get('xp', 0) - r.get('xp', 0) <= 20000
+        && d.get('coins', 0) is int
+        && d.get('coins', 0) >= r.get('coins', 0)
+        && d.get('coinN_runner', 0) is int
+        && d.get('coinN_runner', 0) >= 0 && d.get('coinN_runner', 0) <= 25
+        && d.get('coinWin_runner', 0) is int
+        && d.get('coinWin_runner', 0) <= request.time.toMillis() + 60000
+        && (sameWin || d.get('coinWin_runner', 0) >= r.get('coinWin_runner', 0) + 86400000)
+        && d.get('coinN_coral', 0) is int
+        && d.get('coinN_coral', 0) >= 0 && d.get('coinN_coral', 0) <= 25
+        && d.get('coinWin_coral', 0) is int
+        && d.get('coinWin_coral', 0) <= request.time.toMillis() + 60000
+        && (sameWinC || d.get('coinWin_coral', 0) >= r.get('coinWin_coral', 0) + 86400000)
+        && d.get('coins', 0) - r.get('coins', 0) <= dn + dnc;
+    }
+
+    function validScore(uid) {
+      return request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'avatar', 'score'])
+        && request.resource.data.score is int
+        && request.resource.data.score > 0
+        && request.resource.data.score < 5000000
+        && request.resource.data.name == get(/databases/$(database)/documents/players/$(uid)).data.name
+        && request.resource.data.avatar == get(/databases/$(database)/documents/players/$(uid)).data.avatar;
+    }
+  }
+}
