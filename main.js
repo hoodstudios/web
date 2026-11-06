@@ -23,6 +23,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app), db = getFirestore(app);
 
 import { createAvatar, createFigureSet, loadSkin, ANIMS } from "./avatar.js";
+import { createCoral } from "./coral.js";
 
 (() => {
 "use strict";
@@ -643,7 +644,7 @@ const WORLDS = [
   { id: "desierto", name: "Desierto", acc: "#f2c14e", img: "img/mundos/desierto.png", bg: "img/fondos/desierto.jpg",
     game: { id: "runner", name: "Desert Rush", col: "scores", field: "score", unit: "puntos" } },
   { id: "end", name: "Elytra Fly", acc: "#b57cf0", img: "img/mundos/end.png", bg: "img/fondos/end.jpg", b: .8, game: null },
-  { id: "oceano", name: "Coral Stack", acc: "#3fd0e0", img: "img/mundos/oceano.png", bg: "img/fondos/oceano.jpg", game: null }
+  { id: "oceano", name: "Coral Stack", acc: "#3fd0e0", img: "img/mundos/oceano.png", bg: "img/fondos/oceano.jpg", game: { id: "coral", name: "Coral Stack", col: "coral", field: "score", unit: "puntos" } }
 ];
 let selWorld = 0, rankTok = 0;
 
@@ -672,8 +673,8 @@ async function renderRank() {
     if (tok === rankTok) Mine.render({ pos: idx >= 0 ? idx + 1 : null, best });
   } catch (e) { console.warn(e); if (tok === rankTok) { box.classList.add("end"); box.innerHTML = `<p class="empty">No se pudo cargar el ranking${e && e.code ? " (" + esc(e.code) + ")" : ""}.</p>`; } }
 }
-async function saveScore(score) {
-  const u = me(), g = WORLDS[0].game; if (!u || !score) return;
+async function saveScore(score, game) {
+  const u = me(), g = game || WORLDS[0].game; if (!u || !score) return;
   try {
     const ref = doc(db, g.col, u.uid), snap = await getDoc(ref);
     if (snap.exists() && snap.data()[g.field] >= score) return;
@@ -1210,7 +1211,7 @@ const Game = (() => {
     aT += k / 60 * (st !== "run" ? ANIMS.idle.fps : aAir ? ANIMS.jump.fps * 1.5 : ANIMS.walk.fps * 1.5);   // andar y salto a 1,5×
     draw(); raf = requestAnimationFrame(loop);
   }
-  const live = () => !$("#v-juego").hidden && $("#gamecard").classList.contains("open") && modal.hidden;
+  const live = () => !$("#v-juego").hidden && $("#gamecard").classList.contains("open") && modal.hidden && $("#gamecard").dataset.g !== "coral";
   const UP = ["Space", "ArrowUp", "KeyW"], DOWN = ["ArrowDown", "ShiftLeft", "ShiftRight", "KeyS"];
   addEventListener("keydown", e => {
     if (!live()) return;
@@ -1222,7 +1223,7 @@ const Game = (() => {
   /* Táctil: si tocas estando en el aire, el salto espera ~90 ms; si en ese tiempo deslizas hacia abajo, solo cae (no vuelve a saltar al aterrizar) */
   let pend = 0, swiped = false;
   gcEl.addEventListener("pointerdown", e => {
-    if (e.target.closest(".gc-close")) return; e.preventDefault(); try { gcEl.setPointerCapture(e.pointerId); } catch (_) { /* sin captura */ }
+    if (e.target.closest(".gc-close") || gcEl.dataset.g === "coral") return; e.preventDefault(); try { gcEl.setPointerCapture(e.pointerId); } catch (_) { /* sin captura */ }
     py0 = e.clientY; swiped = false; clearTimeout(pend); pend = 0;
     if (st === "run" && s && s.y < GY - S - 2) pend = setTimeout(() => { pend = 0; if (!swiped) press(); }, 90); else press();
   });
@@ -1243,6 +1244,17 @@ const Game = (() => {
 })();
 
 /* ---------- Jugar: el personaje salta a la isla y el juego ocupa toda la ventana (sin pantalla completa del navegador) ---------- */
+/* ---------- Coral Stack (tetris submarino) ---------- */
+async function coralFace(k) {
+  const u = me(), f = u ? await figsFor(u.uid, u.name, u.avatar) : await loadSkin(["https://minotar.net/skin/MHF_Steve", "https://mc-heads.net/skin/MHF_Steve", LOCAL_SKIN]).then(i => i && { img: i, slim: false });
+  return f ? createFigureSet(f.img, { slim: f.slim, k }) : null;
+}
+const Coral = createCoral({
+  $, me, db, doc, getDoc, updateDoc, increment, xpNeed, saveScore, faceSet: coralFace, game: WORLDS[2].game,
+  refresh: () => Arcade.refresh(), note: t => Mine.note(t),
+  live: () => !$("#v-juego").hidden && $("#gamecard").classList.contains("open") && modal.hidden && $("#gamecard").dataset.g === "coral"
+});
+
 const Play = (() => {
   const gc = $("#gamecard");
   const isOpen = () => gc.classList.contains("open");
@@ -1263,12 +1275,13 @@ const Play = (() => {
     requestAnimationFrame(step);
   }
   function open(w) {
+    gc.dataset.g = w.game.id;
     gc.classList.add("open"); gc.setAttribute("aria-hidden", "false");
-    Game.start();
+    if (w.game.id === "coral") Coral.start(); else Game.start();
   }
   function close() {
     if (!isOpen()) return;
-    gc.classList.remove("open"); gc.setAttribute("aria-hidden", "true"); Game.stop();
+    gc.classList.remove("open"); gc.setAttribute("aria-hidden", "true"); Game.stop(); Coral.stop();
   }
   $("#gc-close").onclick = close;
   addEventListener("keydown", e => { if (e.key === "Escape") close(); });

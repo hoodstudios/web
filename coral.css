@@ -1,0 +1,5 @@
+/* Coral Stack: el lienzo ocupa toda la pantalla dentro del overlay del juego */
+.gamecard #cc{display:none;position:absolute;inset:0;width:100%;height:100%;z-index:1;touch-action:none;image-rendering:pixelated;background:#02152b}
+.gamecard[data-g="coral"] #cc{display:block}
+.gamecard[data-g="coral"] #cv,.gamecard[data-g="coral"] .gc-bg,.gamecard[data-g="coral"] .small{display:none}
+.gamecard[data-g="coral"] .gc-close{z-index:5}
