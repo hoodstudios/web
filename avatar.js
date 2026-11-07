@@ -25,7 +25,7 @@ function detectSlim(img) {
 /* Cabeza grande (1 píxel de skin = 2 unidades) y cuerpo mini (1 píxel = 1 unidad). Unidad de dibujo u = 1 píxel
  * del cuerpo; k = píxeles de pantalla por unidad. Una pose son desplazamientos [dx, dy] por parte. */
 function buildFigure(img, o, k) {
-  const PX = 3, PT = 2, PB = 1;                                 // margen (en u) para que las partes puedan moverse sin recortarse
+  const PX = 3, PT = o.PT || 2, PB = 1;                                 // margen (en u) para que las partes puedan moverse sin recortarse
   const P = o.pose || {}, pp = n => P[n] || [0, 0];             // pose: h, t, aL, aR, lL, lR
   const f = img.width / 64, legacy = img.height < img.width;
   const slim = o.arms === "slim" || (o.arms === "auto" && detectSlim(img)), aw = slim ? 3 : 4;
@@ -87,6 +87,14 @@ function buildFigure(img, o, k) {
     });
     if (full && P.front) arms();
   });
+  const cs = o.cos;                                              // 3) sombrero (o cualquier cosmético de cabeza): sigue la pose de la cabeza
+  if (cs && cs.img && cs.img.width) {
+    const hw = Math.round(cs.w * k), hh = Math.round(hw * cs.img.height / cs.img.width), hx = X(8 + (cs.x || 0)) - Math.round(hw / 2), hy = Math.round((cs.y ?? 4) * k) - hh;
+    part("h", () => {
+      if (E > 0 && cs.dark) for (let i = 4; i >= 1; i--) c.drawImage(cs.dark, hx + Math.round(E * k * i / 4), hy, hw, hh);   // grosor: copias oscuras hacia el lado
+      c.drawImage(cs.img, hx, hy, hw, hh);
+    });
+  }
   fig.headX = ox * k;
   return fig;
 }
@@ -134,11 +142,23 @@ export const ANIMS = {
 };
 
 /* Fotogramas del personaje ya dibujados (se crean la primera vez que se piden). */
-export function createFigureSet(img, { slim = false, k = 3 } = {}) {
-  const base = { style: "drop", depth: 50, arms: slim ? "slim" : "auto", hat: true };
+/* cos (opcional): { img, w, x, y } sombrero ya cargado. w = ancho en unidades (la cabeza mide 16), y = cuánto baja el borde de abajo
+ * del sombrero desde lo alto de la cabeza, x = desplazamiento horizontal. Si el sombrero falla, el avatar se dibuja igual sin él. */
+export function createFigureSet(img, { slim = false, k = 3, cos = null } = {}) {
+  let hat = null, PT = 2;
+  try {
+    if (cos && cos.img && cos.img.width) {
+      const w = Math.max(6, Math.min(26, Number(cos.w) || 16)), y = Number.isFinite(Number(cos.y)) ? Number(cos.y) : 4, x = Number(cos.x) || 0;
+      const hh = w * cos.img.height / cos.img.width; PT = Math.max(2, Math.min(40, Math.ceil(hh - y) + 3));
+      const d = document.createElement("canvas"); d.width = cos.img.width; d.height = cos.img.height; const g = d.getContext("2d");
+      g.drawImage(cos.img, 0, 0); g.globalCompositeOperation = "source-atop"; g.fillStyle = "rgba(0,0,0,.5)"; g.fillRect(0, 0, d.width, d.height);
+      hat = { img: cos.img, dark: d, w, x, y };
+    }
+  } catch (e) { hat = null; PT = 2; }
+  const base = { style: "drop", depth: 50, arms: slim ? "slim" : "auto", hat: true, PT, cos: hat };
   const cache = new Map();
   return {
-    k, w: 32 * k, feet: 25 * k,                                  // ancho del lienzo y fila (px) donde apoyan los pies
+    k, w: 32 * k, feet: (23 + PT) * k,                                  // ancho del lienzo y fila (px) donde apoyan los pies
     get(anim, i = 0) {
       const a = ANIMS[anim], n = a ? a.frames.length : 1, j = ((i % n) + n) % n, key = anim + ":" + j, pose = a ? a.frames[j] : {};
       let fig = cache.get(key);
@@ -178,7 +198,7 @@ const MINX = BLK + 50, MAXX = W - BLK - 50, MINY = WALL + 34, MAXY = H - 14;   /
 const HEART = ["0110110", "1111111", "1111111", "0111110", "0011100", "0001000"];
 const rnd = (a, b) => a + Math.random() * (b - a);
 
-export function createAvatar(canvas, { skinSources = [], slim = false, name = "avatar" } = {}) {
+export function createAvatar(canvas, { skinSources = [], slim = false, name = "avatar", cos = null } = {}) {
   canvas.width = W; canvas.height = H;
   const c = canvas.getContext("2d"); c.imageSmoothingEnabled = false;
   let img = null, set = null, bg = null, raf = 0, last = 0, alive = true;
@@ -300,7 +320,7 @@ export function createAvatar(canvas, { skinSources = [], slim = false, name = "a
   /* ---------- Arranque ---------- */
   loadSkin(skinSources).then(i => {
     if (!alive || !i) return;
-    img = i; set = createFigureSet(i, { slim, k: K });
+    img = i; set = createFigureSet(i, { slim, k: K, cos });
   });
   raf = requestAnimationFrame(frame);
 

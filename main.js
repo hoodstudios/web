@@ -8,7 +8,7 @@ import {
   GoogleAuthProvider, signInWithPopup, linkWithPopup, unlink, updatePassword, getAdditionalUserInfo
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, setDoc, updateDoc, getDocs, collection, query, where, orderBy, limit, serverTimestamp, increment
+  getFirestore, doc, getDoc, setDoc, updateDoc, getDocs, collection, query, where, orderBy, limit, serverTimestamp, increment, deleteDoc, arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -23,6 +23,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app), db = getFirestore(app);
 
 import { createAvatar, createFigureSet, loadSkin, ANIMS } from "./avatar.js";
+import { Mercado } from "./mercado.js";
 
 (() => {
 "use strict";
@@ -109,6 +110,7 @@ function route() {
   if (cur === "jugadores") renderPlayers();
   if (cur === "perfil") renderProfile(arg);
   if (cur === "juego") Arcade.enter(); else Arcade.leave();
+  if (cur === "mercado") Mercado.enter(); else Mercado.leave();
   document.body.classList.toggle("noscroll", cur === "juego");
   document.body.classList.toggle("plfix", cur === "jugadores");
   if (cur === "jugadores") { fitPlayers(); requestAnimationFrame(fitPlayers); }
@@ -116,6 +118,19 @@ function route() {
   window.scrollTo(0, 0); if (cur === "inicio") fitSub();
 }
 addEventListener("hashchange", route);
+Mercado.init({
+  db, auth, esc, me,
+  fb: { doc, getDoc, setDoc, updateDoc, getDocs, collection, deleteDoc, increment, arrayUnion },
+  patchMe: p => { if (profile) Object.assign(profile, p); },
+  face: async () => {
+    const u = me(), f = u ? await figsFor(u.uid, u.name, u.avatar) : await loadSkin(["https://minotar.net/skin/MHF_Steve", "https://mc-heads.net/skin/MHF_Steve", LOCAL_SKIN]).then(i => i && { img: i, slim: false });
+    return f ? { img: f.img, slim: f.slim } : null;
+  },
+  onChange: () => {                                          // se cambió algo puesto (sombrero, marco, fondo): refresca todo lo que lo muestra
+    const u = me(); if (u) for (const k of [...figCache.keys()]) if (k.startsWith(u.uid + "|")) figCache.delete(k);
+    renderAuth(); if (hashParts()[0] === "perfil") route();
+  }
+});
 
 /* ---------- Galería del inicio (ruleta) ---------- */
 /* Todas las imágenes de la carpeta "galeria/" aparecen solas aquí. Para obtener la lista:
@@ -248,7 +263,7 @@ async function loadProfile(user) {
   if (!user) return;
   try {
     const s = await getDoc(doc(db, "players", user.uid));
-    if (s.exists()) { const d = s.data(); profile = { uid: user.uid, name: d.name, avatar: okAv(d.avatar), medalIds: Array.isArray(d.medalIds) ? d.medalIds : [], xp: Math.floor(Number(d.xp)) || 0, coins: Number(d.coins ?? d.monedas) || 0 }; }
+    if (s.exists()) { const d = s.data(); profile = { uid: user.uid, name: d.name, avatar: okAv(d.avatar), medalIds: Array.isArray(d.medalIds) ? d.medalIds : [], xp: Math.floor(Number(d.xp)) || 0, coins: Number(d.coins ?? d.monedas) || 0, inv: Array.isArray(d.inv) ? d.inv : [], equip: d.equip && typeof d.equip === "object" ? d.equip : {} }; }
   } catch (e) { console.warn(e); }
 }
 async function signUp(name, pw, prem, file) {
@@ -262,7 +277,7 @@ async function signUp(name, pw, prem, file) {
     try { await setDoc(doc(db, "players", cred.user.uid), { name, avatar, medalIds: [], createdAt: serverTimestamp() }); }
     catch (e) { try { await deleteUser(cred.user); } catch (_) {} return fe(e); }
     try { await setDoc(doc(db, "avatars", cred.user.uid), { skin: skinData, slim }); } catch (e) { console.warn(e); }
-    profile = { uid: cred.user.uid, name, avatar, medalIds: [], xp: 0, coins: 0 };
+    profile = { uid: cred.user.uid, name, avatar, medalIds: [], xp: 0, coins: 0, inv: [], equip: {} };
     return null;
   } finally { signing = false; }
 }
@@ -322,7 +337,7 @@ function renderAuth() {
   if (u) {
     const d = document.createElement("a"); d.className = "me"; d.href = pLink(u.name); d.title = "Mi perfil";
     d.innerHTML = `<img src="${esc(u.avatar)}" alt="Mi perfil">`;
-    box.append(d);
+    box.append(d); Mercado.decorate({ equip: u.equip, frameEls: [d.querySelector("img")] });
   } else box.append(mk("Iniciar sesión", "btn", () => openM("login")), mk("Registrarse", "btn solid", () => openM("signup")));
 }
 
@@ -379,10 +394,10 @@ const figCache = new Map();
 function figsFor(uid, name, avatar) {                        // { img, slim } de la skin del jugador (se guarda en caché)
   const key = uid + "|" + avatar;
   if (!figCache.has(key)) figCache.set(key, (async () => {
-    let md = null;
-    try { const d = await getDoc(doc(db, "avatars", uid)); md = d.exists() ? d.data() : null; } catch (e) { /* sin skin guardada */ }
+    let md = null, hat = null;
+    try { const [d, pl] = await Promise.all([getDoc(doc(db, "avatars", uid)), getDoc(doc(db, "players", uid)).catch(() => null)]); md = d.exists() ? d.data() : null; const e = pl && pl.exists() && pl.data().equip; hat = e && typeof e.hat === "string" ? e.hat : null; } catch (e) { /* sin skin guardada */ }
     const img = await loadSkin(skinSources(name, avatar, md));
-    return img ? { img, slim: !!(md && md.slim) } : null;
+    return img ? { img, slim: !!(md && md.slim), hat } : null;
   })());
   return figCache.get(key);
 }
@@ -397,7 +412,7 @@ function drawTrim(cv, fig) {                                 // recorta el hueco
 }
 async function paintFig(cv) {
   const { uid, name, avatar } = cv.dataset, f = await figsFor(uid, name, avatar);
-  if (f) { try { drawTrim(cv, createFigureSet(f.img, { slim: f.slim, k: 3 }).get("idle", 0).fig); cv.classList.add("ready"); return; } catch (e) { console.warn(e); } }
+  if (f) { try { const cos = await Mercado.hatCos(f.hat); drawTrim(cv, createFigureSet(f.img, { slim: f.slim, k: 3, cos }).get("idle", 0).fig); cv.classList.add("ready"); return; } catch (e) { console.warn(e); } }
   const im = new Image(); im.onload = () => { cv.width = im.width; cv.height = im.height; cv.getContext("2d").drawImage(im, 0, 0); cv.classList.add("ready"); }; im.src = okAv(avatar);
 }
 const figIO = "IntersectionObserver" in window ? new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { figIO.unobserve(e.target); paintFig(e.target); } }), { rootMargin: "300px" }) : null;
@@ -553,7 +568,7 @@ async function renderProfile(name) {
     const ids = Array.isArray(p.medalIds) ? p.medalIds : [], xpT = xpOf(p), xi = xpInfo(xpT);
     box.innerHTML = `
       <div class="card prof">
-        <img class="pface" src="${esc(okAv(p.avatar))}" alt="Cabeza de ${esc(p.name)}">
+        <img class="pface" id="pface" src="${esc(okAv(p.avatar))}" alt="Cabeza de ${esc(p.name)}">
         <div class="pinfo">
           <h2>${esc(p.name)}</h2>
           <p class="muted">Miembro desde ${esc(fmtDate(p.createdAt))}</p>
@@ -575,6 +590,8 @@ async function renderProfile(name) {
         <canvas id="acv" role="img" aria-label="Avatar de ${esc(p.name)} en su habitación"></canvas>
         <div class="avatar-tools"><button class="btn solid mini" id="avatar-download" type="button">Descargar avatar</button></div>
       </div>
+      <h3 class="sec">Inventario</h3>
+      <div class="card invbox" id="invbox"></div>
       <h3 class="sec">Medallas <span class="muted">(${ids.length})</span></h3>
       <div class="medals" id="medals">${ids.length ? "" : `<p class="muted">Aún no tiene medallas.</p>`}</div>
       ${mine ? `<h3 class="sec">Seguridad</h3>
@@ -602,7 +619,12 @@ async function renderProfile(name) {
       const b = document.createElement("b"); b.textContent = m.name;
       el.append(ic, b); mw.append(el);
     });
-    avatarFx = createAvatar($("#acv"), { skinSources: skinSources(p.name, p.avatar, md), slim: !!(md && md.slim), name: p.name });
+    const pe = p.equip && typeof p.equip === "object" ? p.equip : {}, pinv = Array.isArray(p.inv) ? p.inv : [];
+    Mercado.decorate({ equip: pe, frameEls: [$("#pface")], bgEl: box });
+    Mercado.inventory($("#invbox"), { inv: pinv, equip: pe, mine, name: p.name });
+    const pcos = await Mercado.hatCos(pe.hat);
+    if (tok !== profTok) return;
+    avatarFx = createAvatar($("#acv"), { skinSources: skinSources(p.name, p.avatar, md), slim: !!(md && md.slim), name: p.name, cos: pcos });
     $("#avatar-download").onclick = () => avatarFx.download();
     if (mine) {
       justGoogle = false;
@@ -700,7 +722,8 @@ const Mine = (() => {
   };
   async function load(u) {
     const k = ++tok, f = u ? await figsFor(u.uid, u.name, u.avatar) : await loadSkin(["https://minotar.net/skin/MHF_Steve", "https://mc-heads.net/skin/MHF_Steve", LOCAL_SKIN]).then(i => i && { img: i, slim: false });
-    if (k !== tok || !f) return; set = createFigureSet(f.img, { slim: f.slim, k: 3 }); last = -1; crop = null;
+    const cos = f ? await Mercado.hatCos(f.hat) : null;
+    if (k !== tok || !f) return; set = createFigureSet(f.img, { slim: f.slim, k: 3, cos }); last = -1; crop = null;
     try {                                                     // recorte = unión de todos los fotogramas idle: sin huecos transparentes y sin saltitos
       let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
       for (let n = 0; n < ANIMS.idle.frames.length; n++) { const fg = set.get("idle", n).fig, w = fg.width, h = fg.height, d = fg.getContext("2d").getImageData(0, 0, w, h).data;
@@ -947,15 +970,15 @@ const Game = (() => {
 
   /* El personaje es el avatar Drop del jugador (con su skin); si no ha iniciado sesión, el Steve por defecto */
   async function loadFace() {
-    const u = me(), key = u ? u.uid + "|" + u.avatar : "guest";
+    const u = me(), key = u ? u.uid + "|" + u.avatar + "|" + ((u.equip && u.equip.hat) || "") : "guest";
     if (key === figKey && figs) return;
     const tok = ++figTok; figKey = key;
     let md = null;
     if (u) { try { const d = await getDoc(doc(db, "avatars", u.uid)); md = d.exists() ? d.data() : null; } catch (e) { /* sin skin guardada */ } }
     const srcs = u ? skinSources(u.name, u.avatar, md) : ["https://minotar.net/skin/MHF_Steve", "https://mc-heads.net/skin/MHF_Steve", LOCAL_SKIN];
-    const img = await loadSkin(srcs);
+    const img = await loadSkin(srcs), cos = await Mercado.hatCos(u && u.equip && u.equip.hat);
     if (tok !== figTok) return;
-    figs = img ? createFigureSet(img, { slim: !!(md && md.slim), k: 2 }) : null;
+    figs = img ? createFigureSet(img, { slim: !!(md && md.slim), k: 2, cos }) : null;
     if (!figs) figKey = "";
   }
   function burst(x, y, cols, n) { for (let i = 0; i < n; i++) s.pts.push({ x, y, vx: rnd(-4, 4), vy: rnd(-5, 1), l: rnd(25, 50), c: cols[i % cols.length] }); }
@@ -1333,12 +1356,12 @@ const Coral = (() => {
     if (key === bestKey) best = Math.max(best, b);
   }
   async function loadFace() {
-    const u = me(), key = u ? u.uid + "|" + u.avatar : "guest"; if (key === figKey && figs) return;
+    const u = me(), key = u ? u.uid + "|" + u.avatar + "|" + ((u.equip && u.equip.hat) || "") : "guest"; if (key === figKey && figs) return;
     const tok = ++figTok; figKey = key; let md = null;
     if (u) { try { const d = await getDoc(doc(db, "avatars", u.uid)); md = d.exists() ? d.data() : null; } catch (e) { /* sin skin */ } }
     const srcs = u ? skinSources(u.name, u.avatar, md) : ["https://minotar.net/skin/MHF_Steve", "https://mc-heads.net/skin/MHF_Steve", LOCAL_SKIN];
-    const img = await loadSkin(srcs); if (tok !== figTok) return;
-    figs = img ? createFigureSet(img, { slim: !!(md && md.slim), k: 4 }) : null; if (!figs) figKey = "";
+    const img = await loadSkin(srcs), cos = await Mercado.hatCos(u && u.equip && u.equip.hat); if (tok !== figTok) return;
+    figs = img ? createFigureSet(img, { slim: !!(md && md.slim), k: 4, cos }) : null; if (!figs) figKey = "";
   }
 
   /* ---- geometría de la pantalla ---- */
@@ -1931,12 +1954,12 @@ const Elytra = (() => {
     if (key === bestKey) best = Math.max(best, b);
   }
   async function loadFace() {
-    const u = me(), key = u ? u.uid + "|" + u.avatar : "guest"; if (key === figKey && figs) return;
+    const u = me(), key = u ? u.uid + "|" + u.avatar + "|" + ((u.equip && u.equip.hat) || "") : "guest"; if (key === figKey && figs) return;
     const tok = ++figTok; figKey = key; let md = null;
     if (u) { try { const d = await getDoc(doc(db, "avatars", u.uid)); md = d.exists() ? d.data() : null; } catch (e) { /* sin skin */ } }
     const srcs = u ? skinSources(u.name, u.avatar, md) : ["https://minotar.net/skin/MHF_Steve", "https://mc-heads.net/skin/MHF_Steve", LOCAL_SKIN];
-    const img = await loadSkin(srcs); if (tok !== figTok) return;
-    figs = img ? createFigureSet(img, { slim: !!(md && md.slim), k: 3 }) : null; if (!figs) figKey = "";
+    const img = await loadSkin(srcs), cos = await Mercado.hatCos(u && u.equip && u.equip.hat); if (tok !== figTok) return;
+    figs = img ? createFigureSet(img, { slim: !!(md && md.slim), k: 3, cos }) : null; if (!figs) figKey = "";
   }
   function fit() {
     DPR = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight; SC = clamp(Math.min(H / 540, W / 420), .45, 2.2); LW = W / SC; LH = H / SC;
@@ -2405,7 +2428,7 @@ route();
 onAuthStateChanged(auth, async user => {
   if (signing) return; // signUp/logIn manejan su propio perfil
   await loadProfile(user);
-  ready = true; renderAuth(); Game.refresh(); Coral.refresh(); Elytra.refresh(); Arcade.refresh();
+  ready = true; renderAuth(); Game.refresh(); Coral.refresh(); Elytra.refresh(); Arcade.refresh(); Mercado.refresh();
   refreshView();
 });
 })();
