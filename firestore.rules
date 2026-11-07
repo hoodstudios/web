@@ -88,6 +88,20 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Ranking de Elytra Fly (mismas reglas que el otro minijuego)
+    match /scores_elytra/{uid} {
+      allow read: if true;
+
+      allow create: if validScore(uid);
+      allow update: if (validScore(uid)
+          && request.resource.data.score > resource.data.score)
+        || (request.auth != null && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['avatar'])
+          && request.resource.data.avatar == get(/databases/$(database)/documents/players/$(uid)).data.avatar);
+
+      allow delete: if false;
+    }
+
     // Skin completa del jugador (o null si es premium) y tipo de brazos.
     match /avatars/{uid} {
       allow read: if true;
@@ -135,8 +149,12 @@ service cloud.firestore {
       let dnc = sameWinC
         ? d.get('coinN_coral', 0) - r.get('coinN_coral', 0)
         : d.get('coinN_coral', 0);
+      let sameWinE = d.get('coinWin_elytra', 0) == r.get('coinWin_elytra', 0);
+      let dne = sameWinE
+        ? d.get('coinN_elytra', 0) - r.get('coinN_elytra', 0)
+        : d.get('coinN_elytra', 0);
       return request.auth != null && request.auth.uid == resource.id
-        && d.diff(r).affectedKeys().hasOnly(['xp', 'coins', 'coinWin_runner', 'coinN_runner', 'coinWin_coral', 'coinN_coral'])
+        && d.diff(r).affectedKeys().hasOnly(['xp', 'coins', 'coinWin_runner', 'coinN_runner', 'coinWin_coral', 'coinN_coral', 'coinWin_elytra', 'coinN_elytra'])
         && d.get('xp', 0) is int
         && d.get('xp', 0) >= r.get('xp', 0)
         && d.get('xp', 0) - r.get('xp', 0) <= 20000
@@ -152,7 +170,12 @@ service cloud.firestore {
         && d.get('coinWin_coral', 0) is int
         && d.get('coinWin_coral', 0) <= request.time.toMillis() + 60000
         && (sameWinC || d.get('coinWin_coral', 0) >= r.get('coinWin_coral', 0) + 86400000)
-        && d.get('coins', 0) - r.get('coins', 0) <= dn + dnc;
+        && d.get('coinN_elytra', 0) is int
+        && d.get('coinN_elytra', 0) >= 0 && d.get('coinN_elytra', 0) <= 25
+        && d.get('coinWin_elytra', 0) is int
+        && d.get('coinWin_elytra', 0) <= request.time.toMillis() + 60000
+        && (sameWinE || d.get('coinWin_elytra', 0) >= r.get('coinWin_elytra', 0) + 86400000)
+        && d.get('coins', 0) - r.get('coins', 0) <= dn + dnc + dne;
     }
 
     function validScore(uid) {
