@@ -411,8 +411,9 @@ function drawTrim(cv, fig, ref) {                              // recorta el hue
     const d = src.getContext("2d").getImageData(0, 0, w, h).data; let x0 = w, y0 = h, x1 = -1, y1 = -1;
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (d[(j * w + i) * 4 + 3] > 8) { if (i < x0) x0 = i; if (i > x1) x1 = i; if (j < y0) y0 = j; if (j > y1) y1 = j; }
     if (x1 >= 0) { x = x0; y = y0; w = x1 - x0 + 1; h = y1 - y0 + 1; }
+    if (ref && x1 >= 0) { const up = Math.round(h * .45), mx = Math.round(w * .12); y -= up; h += up; x -= mx; w += mx * 2; }   // margen fijo para el sombrero (igual en todos)
   } catch (e) { const pt = src.padT || 0, pb = src.padB || 0; y = pt; h = src.height - pt - pb; }
-  const dx = Math.round((fig.width - src.width) / 2), dy = fig.height - src.height;       // las figuras comparten pies y centro
+  const dx = Math.round((fig.width - src.width) / 2), dy = (fig.padT != null && src.padT != null) ? fig.padT - src.padT : fig.height - src.height;       // las figuras comparten pies y centro
   cv.width = w; cv.height = h; const g = cv.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(fig, x + dx, y + dy, w, h, 0, 0, w, h);
 }
 const enchCv = new Set(); let enchT = 0;
@@ -428,7 +429,7 @@ async function paintFig(cv) {
   const { uid, name, avatar } = cv.dataset, f = await figsFor(uid, name, avatar);
   if (f) { try {
     const cos = await Mercado.hatCos(f.hat), set = createFigureSet(f.img, { slim: f.slim, k: 3, cos });
-    const ref = cos ? createFigureSet(f.img, { slim: f.slim, k: 3 }).get("idle", 0).fig : null; cv._ref = ref;
+    const ref = cos ? createFigureSet(f.img, { slim: f.slim, k: 3 }).get("idle", 0).fig : set.get("idle", 0).fig; cv._ref = ref;
     drawTrim(cv, set.get("idle", 0).fig, ref); cv.classList.add("ready");
     if (set.ench) { cv._set = set; enchCv.add(cv); if (!enchT) enchT = setInterval(enchTick, 90); }
     return;
@@ -855,7 +856,7 @@ const Game = (() => {
     const t = Math.max(3, Math.round(h * .2)), a = Math.round(h * .3);
     c.globalAlpha = al; c.fillStyle = rgb(col);
     c.fillRect(x, y - h, t, h);
-    c.fillRect(x - a, y - h * .55, a + t, t); c.fillRect(x - a, y - h * .55 - a, t, a + t);
+    c.fillRect(x - a, y - h * .45, a + t, t); c.fillRect(x - a, y - h * .55 - a, t, a + t);
     c.fillRect(x, y - h * .38, a + t, t); c.fillRect(x + a, y - h * .38 - a * .8, t, a * .8 + t);
   }
   /* Templo del desierto: pirámide escalonada con franja azul y dos torres */
@@ -1823,7 +1824,7 @@ const Coral = (() => {
   }
   function drawAvatar(r) {
     const { cs: z } = L; panel(r.x, r.y, r.w, r.h, .3, "rgba(130,225,255,.18)");
-    if (av.ring > 0) { c.save(); c.globalAlpha = av.ring / 40 * .6; c.strokeStyle = av.ringC; c.lineWidth = 3; c.beginPath(); c.ellipse(r.x + r.w / 2, r.y + r.h * .55, r.w * (.2 + (1 - av.ring / 40) * .35), r.h * (.25 + (1 - av.ring / 40) * .3), 0, 0, 6.3); c.stroke(); c.restore(); }
+    if (av.ring > 0) { c.save(); c.globalAlpha = av.ring / 40 * .6; c.strokeStyle = av.ringC; c.lineWidth = 3; c.beginPath(); c.ellipse(r.x + r.w / 2, r.y + r.h * .45, r.w * (.2 + (1 - av.ring / 40) * .35), r.h * (.25 + (1 - av.ring / 40) * .3), 0, 0, 6.3); c.stroke(); c.restore(); }
     if (!figs) { c.fillStyle = "#f7b41e"; c.fillRect(r.x + r.w / 2 - 12, r.y + r.h - 40, 24, 32); return; }
     const a = ANIMS[av.anim], n = a.frames.length, i = av.anim === "jump" ? Math.min(n - 1, Math.floor(av.t)) : Math.floor(av.t) % n, { fig, gx, gy } = figs.get(av.anim, i);
     let sc = Math.min(r.w * .92 / figs.w, r.h / (figs.feet * 1.18)); sc = Math.max(.5, Math.floor(sc * 4 * DPR) / (4 * DPR)); const swim = Math.sin(performance.now() / 650) * 2.2, u = r.h / 160;
@@ -1869,7 +1870,7 @@ const Coral = (() => {
   }
   function drawTouch() {
     L.btn.forEach(b => { const on = [...ptrs.values()].includes(b.id); c.fillStyle = on ? "rgba(120,230,255,.55)" : "rgba(5,25,55,.55)"; c.beginPath(); c.roundRect(b.x, b.y, b.w, b.h, 12); c.fill(); c.strokeStyle = "rgba(150,230,255,.5)"; c.lineWidth = 1.5; c.stroke();
-      T(b.t, b.x + b.w / 2, b.y + b.h / 2 + Math.min(b.h, 40) * .18, b.t.length > 2 ? Math.min(b.h * .34, 15) : Math.min(b.h * .5, 26), "#eaffff", "center", 800); });
+      T(b.t, b.x + b.w / 2, b.y + b.h / 2 + Math.min(b.h, 40) * .18, b.t.length > 2 ? Math.min(b.h * .45, 15) : Math.min(b.h * .5, 26), "#eaffff", "center", 800); });
   }
   function draw(k) {
     c.setTransform(DPR, 0, 0, DPR, 0, 0); c.clearRect(0, 0, W, H); drawBG(k);
@@ -2177,7 +2178,7 @@ const Elytra = (() => {
         const h = 5 + Math.floor(R() * 8), A = col("#a073b3"), B = col("#6b4580"), Fl = col("#e6b1f2"), Fc = col("#fff0ff"), Fr = col("#d9c2ec"), Fd = col("#a98cc4");
         U(x - u, y - h * u, 2 * u, h * u, A); U(x + 0, y - h * u, u, h * u, B);
         const tip = (tx, ty) => { U(tx - 1.5 * u, ty - 2 * u, 3 * u, 2 * u, Fl); U(tx - .5 * u, ty - 1.5 * u, u, u, Fc); };
-        tip(x, y - h * u); if (h > 6) { const sd = R() < .5 ? -1 : 1, by2 = y - Math.floor(h * .55) * u, bl = 3 + Math.floor(R() * 2); U(sd > 0 ? x + u : x - u - bl * u, by2, bl * u, u, A); const ex = sd > 0 ? x + u + bl * u : x - u - bl * u; U(ex - (sd > 0 ? 0 : -0), by2 - 3 * u, u, 3 * u, B); tip(ex + .5 * u, by2 - 3 * u); }
+        tip(x, y - h * u); if (h > 6) { const sd = R() < .5 ? -1 : 1, by2 = y - Math.floor(h * .45) * u, bl = 3 + Math.floor(R() * 2); U(sd > 0 ? x + u : x - u - bl * u, by2, bl * u, u, A); const ex = sd > 0 ? x + u + bl * u : x - u - bl * u; U(ex - (sd > 0 ? 0 : -0), by2 - 3 * u, u, 3 * u, B); tip(ex + .5 * u, by2 - 3 * u); }
         if (R() < .6) { const fx = x + (R() < .5 ? -4 : 3) * u; U(fx, y - 3 * u, 3 * u, 3 * u, Fr); U(fx + u, y - 2 * u, 2 * u, 2 * u, Fd); }
       };
       const island = (cx, cy, hw) => {
