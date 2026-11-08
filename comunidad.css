@@ -624,3 +624,5 @@ body.mk-noscroll{overflow:hidden}
 .chestrail .btn.mini{width:100%;border-radius:10px;padding:.35rem .5rem;font-size:.78rem;white-space:nowrap}
 .rk-me .you{position:relative}.rk-me .you canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center bottom}
 .pfig canvas{top:-14px;bottom:auto;height:calc(100% + 2px)}.rk-scroll{padding-top:14px}
+.prow:not(.sm) .plate{align-self:start;height:82px}
+@media(max-width:860px){.prow:not(.sm) .plate{height:74px}}
