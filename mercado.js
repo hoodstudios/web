@@ -43,6 +43,7 @@ export function loadShop(force) {
   return shopP;
 }
 export const itemOf = id => shop.get(id) || null;
+export const shopList = () => [...shop.values()];
 function imgOf(it) {
   if (!it || !it.img) return Promise.resolve(null);
   const k = it.id + "|" + it.img.length;
@@ -50,6 +51,13 @@ function imgOf(it) {
   return imgCache.get(k);
 }
 /* Sombrero listo para dibujar: { img, w, x, y } o null (si no existe, se eliminó o falla, el avatar sale sin sombrero) */
+function glint(img) {                                         // brillo morado de objeto encantado, solo sobre los píxeles del sombrero
+  const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const g = c.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(img, 0, 0);
+  g.globalCompositeOperation = "source-atop"; const gr = g.createLinearGradient(0, 0, c.width, c.height);
+  [[0, ".42"], [.3, ".6"], [.5, ".4"], [.75, ".58"], [1, ".4"]].forEach(([p, a], i) => gr.addColorStop(p, i % 2 ? `rgba(228,170,255,${a})` : `rgba(130,40,235,${a})`)); g.fillStyle = gr; g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = "rgba(255,255,255,.28)"; const st = Math.max(3, Math.round(c.width / 5)); for (let x = -c.height; x < c.width; x += st * 2) { g.beginPath(); g.moveTo(x, c.height); g.lineTo(x + st * .5, c.height); g.lineTo(x + c.height + st * .5, 0); g.lineTo(x + c.height, 0); g.fill(); }
+  return c;
+}
 export async function hatCos(id) {
   if (!id) return null;
   try {
@@ -57,7 +65,7 @@ export async function hatCos(id) {
     const it = shop.get(id);
     if (!it || it.cat !== "hat") return null;
     const img = await imgOf(it);
-    return img ? { img, w: it.w, x: it.x, y: it.y } : null;
+    return img ? { img: it.ench ? glint(img) : img, w: it.w, x: it.x, y: it.y } : null;
   } catch (e) { return null; }
 }
 async function modelOf(id) {
@@ -540,14 +548,21 @@ export async function inventory(host, { inv = [], equip: eq = {}, mine = false, 
   const order = { items: 0, hat: 1, profile: 2 }, wornOf = it => (it.cat === "hat" && eq.hat === it.id) || (it.cat === "profile" && (eq.bg === it.id || eq.frame === it.id));
   list.sort((a, b) => (order[a.cat] ?? 9) - (order[b.cat] ?? 9) || byOrder(a, b));
   host.innerHTML = `<div class="mk-inv">${list.map(it => `<button class="mk-slot${wornOf(it) ? " worn" : ""}" type="button" data-id="${esc(it.id)}" title="${esc(it.name)}"><span class="mk-tw">${thumb(it)}</span><b>${esc(it.name)}</b></button>`).join("")}</div>`;
-  host.onclick = e => { const b = e.target.closest(".mk-slot"); if (b) viewItem(shop.get(b.dataset.id), mine, host, { inv, equip: eq, mine, name }); };
+  host.onclick = e => { const b = e.target.closest(".mk-slot"); if (b) viewItem(shop.get(b.dataset.id), mine, host, { inv, equip: eq, mine, name }, list); };
 }
-async function viewItem(it, mine, host, st) {
+async function viewItem(it, mine, host, st, list = []) {
   if (!it) return;
   const u = D.me(), eq = (mine && u && u.equip) || st.equip || {}, on = wearable(it) && ((it.cat === "hat" && eq.hat === it.id) || (it.cat === "profile" && (eq.bg === it.id || eq.frame === it.id)));
   const m = modal(`<h3>${esc(it.name)}</h3><div class="mk-vstage"><canvas class="mk-3d"></canvas></div><p class="mk-desc">${esc(it.desc || "")}</p><small class="mk-tip">Arrastra para girarlo</small>
-    ${mine && wearable(it) ? `<button class="mk-buy alt" type="button" id="mk-eq">${on ? "QUITAR" : "EQUIPAR"}</button><p class="mk-msg" id="mk-vm"></p>` : ""}`, "view");
-  let v = null; m._done = () => v && v.stop();
+    ${mine && wearable(it) ? `<button class="mk-buy alt" type="button" id="mk-eq">${on ? "QUITAR" : "EQUIPAR"}</button><p class="mk-msg" id="mk-vm"></p>` : ""}`, "view big");
+  const idx = list.findIndex(x => x.id === it.id), N = list.length;
+  if (N > 1) {                                                // pasar al item anterior / siguiente sin cerrar el visor
+    m.querySelector(".mk-mbox").insertAdjacentHTML("beforeend", `<button class="mk-nv l" type="button" aria-label="Anterior">‹</button><button class="mk-nv r" type="button" aria-label="Siguiente">›</button><small class="mk-cnt">${idx + 1} / ${N}</small>`);
+    const go = d => { const n = list[(idx + d + N) % N]; viewItem(n, mine, host, st, list); m.close(); };
+    m.querySelector(".mk-nv.l").onclick = () => go(-1); m.querySelector(".mk-nv.r").onclick = () => go(1);
+    m._nk = e => { if (e.key === "ArrowLeft") go(-1); else if (e.key === "ArrowRight") go(1); }; document.addEventListener("keydown", m._nk, true);
+  }
+  let v = null; m._done = () => { v && v.stop(); if (m._nk) document.removeEventListener("keydown", m._nk, true); };
   const cv = m.querySelector("canvas");
   if (it.kind && it.kind !== "bg-img" && !it.img) { cv.replaceWith(Object.assign(document.createElement("div"), { className: "mk-vsw" })); m.querySelector(".mk-vsw").style.background = it.kind.startsWith("bg") ? bgCss(it) : ""; if (it.kind.startsWith("fr-")) m.querySelector(".mk-vsw").innerHTML = thumb(it); }
   else { v = viewer3d(cv); const [img, obj] = await Promise.all([imgOf(it), it.model ? modelOf(it.id) : null]); v.set({ img, bb: obj, ench: it.ench }); }
@@ -577,5 +592,5 @@ export const Mercado = {
   },
   leave() { if (root && root._layout) removeEventListener("resize", root._layout); stopStage(); if (root && openCat) closeBook(); },
   refresh() { if (root && openCat) renderBook(); else if (root) coinsLabel(); },
-  loadShop, hatCos, decorate, applyFrame, applyBg, inventory, itemOf, isAdmin
+  loadShop, hatCos, decorate, applyFrame, applyBg, inventory, itemOf, isAdmin, shopList
 };

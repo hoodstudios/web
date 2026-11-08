@@ -24,6 +24,7 @@ const auth = getAuth(app), db = getFirestore(app);
 
 import { createAvatar, createFigureSet, loadSkin, ANIMS } from "./avatar.js";
 import { Mercado } from "./mercado.js";
+import { createCofres } from "./cofres.js";
 
 (() => {
 "use strict";
@@ -132,6 +133,8 @@ Mercado.init({
     renderAuth(); if (hashParts()[0] === "perfil") route();
   }
 });
+const Cofres = createCofres({ me, xpInfo, db, doc, getDoc, setDoc, updateDoc, increment, Mercado, refreshAuth: () => renderAuth() });
+
 
 /* ---------- Galería del inicio (ruleta) ---------- */
 /* Todas las imágenes de la carpeta "galeria/" aparecen solas aquí. Para obtener la lista:
@@ -264,7 +267,7 @@ async function loadProfile(user) {
   if (!user) return;
   try {
     const s = await getDoc(doc(db, "players", user.uid));
-    if (s.exists()) { const d = s.data(); profile = { uid: user.uid, name: d.name, avatar: okAv(d.avatar), medalIds: Array.isArray(d.medalIds) ? d.medalIds : [], xp: Math.floor(Number(d.xp)) || 0, coins: Number(d.coins ?? d.monedas) || 0, inv: Array.isArray(d.inv) ? d.inv : [], equip: d.equip && typeof d.equip === "object" ? d.equip : {} }; }
+    if (s.exists()) { const d = s.data(); profile = { uid: user.uid, name: d.name, avatar: okAv(d.avatar), medalIds: Array.isArray(d.medalIds) ? d.medalIds : [], chestsOpened: Math.floor(Number(d.chestsOpened)) || 0, xp: Math.floor(Number(d.xp)) || 0, coins: Number(d.coins ?? d.monedas) || 0, inv: Array.isArray(d.inv) ? d.inv : [], equip: d.equip && typeof d.equip === "object" ? d.equip : {} }; }
   } catch (e) { console.warn(e); }
 }
 async function signUp(name, pw, prem, file) {
@@ -278,7 +281,7 @@ async function signUp(name, pw, prem, file) {
     try { await setDoc(doc(db, "players", cred.user.uid), { name, avatar, medalIds: [], createdAt: serverTimestamp() }); }
     catch (e) { try { await deleteUser(cred.user); } catch (_) {} return fe(e); }
     try { await setDoc(doc(db, "avatars", cred.user.uid), { skin: skinData, slim }); } catch (e) { console.warn(e); }
-    profile = { uid: cred.user.uid, name, avatar, medalIds: [], xp: 0, coins: 0, inv: [], equip: {} };
+    profile = { uid: cred.user.uid, name, avatar, medalIds: [], xp: 0, coins: 0, inv: [], equip: {}, chestsOpened: 0 };
     return null;
   } finally { signing = false; }
 }
@@ -339,6 +342,7 @@ function renderAuth() {
     const d = document.createElement("a"); d.className = "me"; d.href = pLink(u.name); d.title = "Mi perfil";
     d.innerHTML = `<img src="${esc(u.avatar)}" alt="Mi perfil">`;
     box.append(d); Mercado.decorate({ equip: u.equip, frameEls: [d.querySelector("img")] });
+    if (typeof Cofres !== "undefined") Cofres.updateDot();
   } else box.append(mk("Iniciar sesión", "btn", () => openM("login")), mk("Registrarse", "btn solid", () => openM("signup")));
 }
 
@@ -583,6 +587,7 @@ async function renderProfile(name) {
           </form>` : ""}
         </div>
       </div>
+      ${mine ? `<div id="chestside"></div>` : ""}
       <div class="card lvcard"><div class="lvbig"><small>Nivel</small><b>${xi.lvl}</b></div>
         <div class="lvmain"><div class="xbar big"><u data-w="${(xi.pct * 100).toFixed(1)}"></u></div>
           <p class="muted">${nf(xi.cur)} / ${nf(xi.need)} XP para el nivel ${xi.lvl + 1} · ${nf(xpT)} XP en total</p></div></div>
@@ -623,6 +628,7 @@ async function renderProfile(name) {
     const pe = p.equip && typeof p.equip === "object" ? p.equip : {}, pinv = Array.isArray(p.inv) ? p.inv : [];
     Mercado.decorate({ equip: pe, frameEls: [$("#pface")], bgEl: box });
     Mercado.inventory($("#invbox"), { inv: pinv, equip: pe, mine, name: p.name });
+    if (mine) { Cofres.mount($("#chestside")); Cofres.markSeen(); }
     const pcos = await Mercado.hatCos(pe.hat);
     if (tok !== profTok) return;
     avatarFx = createAvatar($("#acv"), { skinSources: skinSources(p.name, p.avatar, md), slim: !!(md && md.slim), name: p.name, cos: pcos });
