@@ -67,6 +67,35 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // CRÉDITOS: personajes del selector (Colaboradores / Donadores). Todos leen; solo el Admin crea, edita o elimina.
+    function linkOk(v) {
+      return v is string && v.size() <= 200 && (v == '' || v.matches('https?://[^ ]+'));
+    }
+    match /credits/{id} {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['name', 'group', 'tag', 'roles', 'bio', 'skin', 'slim', 'links', 'order'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 24
+        && request.resource.data.group in ['collab', 'donor']
+        && request.resource.data.tag is string && request.resource.data.tag.size() <= 16
+        && request.resource.data.roles is string && request.resource.data.roles.size() <= 120
+        && request.resource.data.bio is string && request.resource.data.bio.size() <= 240
+        && request.resource.data.slim is bool
+        && request.resource.data.order is number
+        && (request.resource.data.skin == null
+            || (request.resource.data.skin is string && request.resource.data.skin.size() < 30000
+                && request.resource.data.skin.matches('data:image/png;base64,.*')))
+        && request.resource.data.links is map
+        && request.resource.data.links.keys().hasOnly(['x', 'tiktok', 'youtube', 'instagram', 'twitch'])
+        && linkOk(request.resource.data.links.get('x', ''))
+        && linkOk(request.resource.data.links.get('tiktok', ''))
+        && linkOk(request.resource.data.links.get('youtube', ''))
+        && linkOk(request.resource.data.links.get('instagram', ''))
+        && linkOk(request.resource.data.links.get('twitch', ''));
+      allow delete: if isAdmin();
+    }
+
     // Eventos del Calendario: todos leen, solo el Admin escribe.
     match /events/{id} {
       allow read: if true;
