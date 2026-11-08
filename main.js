@@ -2171,8 +2171,13 @@ const Elytra = (() => {
     g.fillStyle = "#e6e6f2"; for (let y = 3; y < 18; y += 5) g.fillRect(3, y, 2, 1);
     return wingSp = o;
   }
+  let wingDk = null;
+  function wingDark() {
+    if (wingDk) return wingDk; const w = wingImg(), o = document.createElement("canvas"); o.width = w.width; o.height = w.height; const g = o.getContext("2d");
+    g.drawImage(w, 0, 0); g.globalCompositeOperation = "source-atop"; g.fillStyle = "rgba(0,0,0,.38)"; g.fillRect(0, 0, o.width, o.height); return wingDk = o;
+  }
   function drawWing(f, theta, far) {
-    c.save(); c.rotate(theta); c.scale(1, 1); c.globalAlpha = 1; if (far) c.filter = "brightness(.62)"; c.imageSmoothingEnabled = false; const k = f * 3; c.drawImage(wingImg(), -5.5 * k, 0, 11 * k, 24 * k); c.restore(); c.filter = "none";
+    c.save(); c.rotate(theta); c.scale(1, 1); c.globalAlpha = 1; c.imageSmoothingEnabled = false; const k = f * 3; c.drawImage(far ? wingDark() : wingImg(), -5.5 * k, 0, 11 * k, 24 * k); c.restore();
   }
   function drawPlayer() {
     c.save(); c.translate(s.x, s.y); c.rotate(s.ang); c.scale(-1, 1);
@@ -2200,7 +2205,7 @@ const Elytra = (() => {
     const part = (y0, y1, capTop) => {
       if (y1 - y0 < 1) return; c.fillStyle = pat || "#14091f"; c.fillRect(p.x, y0, p.w, y1 - y0);
       c.fillStyle = "rgba(0,0,0,.38)"; c.fillRect(p.x + p.w - 8, y0, 8, y1 - y0); c.fillStyle = "rgba(190,130,255,.14)"; c.fillRect(p.x, y0, 6, y1 - y0);
-      c.strokeStyle = "#a77bff"; c.lineWidth = 2; c.shadowColor = "#a77bff"; c.shadowBlur = 8; c.strokeRect(p.x + 1, y0 - 4, p.w - 2, y1 - y0 + 8); c.shadowBlur = 0;
+      c.strokeStyle = "rgba(167,123,255,.22)"; c.lineWidth = 7; c.strokeRect(p.x + 1, y0 - 4, p.w - 2, y1 - y0 + 8); c.strokeStyle = "#a77bff"; c.lineWidth = 2; c.strokeRect(p.x + 1, y0 - 4, p.w - 2, y1 - y0 + 8);
       const cy = capTop ? y1 - 14 : y0; c.fillStyle = "#0c0516"; c.fillRect(p.x - 5, cy, p.w + 10, 14); c.fillStyle = pat || "#14091f"; c.fillRect(p.x - 5, cy, p.w + 10, 14); c.fillStyle = "rgba(0,0,0,.3)"; c.fillRect(p.x - 5, cy + 8, p.w + 10, 6); c.strokeStyle = "#c9a3ff"; c.lineWidth = 2; c.strokeRect(p.x - 4, cy + 1, p.w + 8, 12);
     };
     if (g.th > 0) part(-30, g.th, true); if (g.by < LH + 30) part(g.by, LH + 30, false);
