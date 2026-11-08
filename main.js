@@ -405,21 +405,22 @@ function figsFor(uid, name, avatar) {                        // { img, slim } de
   })());
   return figCache.get(key);
 }
-function drawTrim(cv, fig) {                                 // recorta el hueco transparente para que el avatar llene su espacio
-  let x = 0, y = 0, w = fig.width, h = fig.height;
+function drawTrim(cv, fig, ref) {                              // recorta el hueco transparente; con ref (figura SIN sombrero) todos usan el mismo recuadro y el sombrero que sobresalga se corta
+  const src = ref || fig; let x = 0, y = 0, w = src.width, h = src.height;
   try {
-    const d = fig.getContext("2d").getImageData(0, 0, w, h).data; let x0 = w, y0 = h, x1 = -1, y1 = -1;
+    const d = src.getContext("2d").getImageData(0, 0, w, h).data; let x0 = w, y0 = h, x1 = -1, y1 = -1;
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (d[(j * w + i) * 4 + 3] > 8) { if (i < x0) x0 = i; if (i > x1) x1 = i; if (j < y0) y0 = j; if (j > y1) y1 = j; }
     if (x1 >= 0) { x = x0; y = y0; w = x1 - x0 + 1; h = y1 - y0 + 1; }
-  } catch (e) { const pt = fig.padT || 0, pb = fig.padB || 0; y = pt; h = fig.height - pt - pb; }
-  cv.width = w; cv.height = h; const g = cv.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(fig, x, y, w, h, 0, 0, w, h);
+  } catch (e) { const pt = src.padT || 0, pb = src.padB || 0; y = pt; h = src.height - pt - pb; }
+  const dx = Math.round((fig.width - src.width) / 2), dy = fig.height - src.height;       // las figuras comparten pies y centro
+  cv.width = w; cv.height = h; const g = cv.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(fig, x + dx, y + dy, w, h, 0, 0, w, h);
 }
 const enchCv = new Set(); let enchT = 0;
 function enchTick() {                                          // sombreros encantados en tablas: redibuja el brillo mientras estén en pantalla
   for (const cv of enchCv) {
     if (!cv.isConnected) { enchCv.delete(cv); continue; }
     const r = cv.getBoundingClientRect(); if (r.bottom < 0 || r.top > innerHeight) continue;
-    try { drawTrim(cv, cv._set.get("idle", 0).fig); } catch (e) { enchCv.delete(cv); }
+    try { drawTrim(cv, cv._set.get("idle", 0).fig, cv._ref); } catch (e) { enchCv.delete(cv); }
   }
   if (!enchCv.size) { clearInterval(enchT); enchT = 0; }
 }
@@ -427,7 +428,8 @@ async function paintFig(cv) {
   const { uid, name, avatar } = cv.dataset, f = await figsFor(uid, name, avatar);
   if (f) { try {
     const cos = await Mercado.hatCos(f.hat), set = createFigureSet(f.img, { slim: f.slim, k: 3, cos });
-    drawTrim(cv, set.get("idle", 0).fig); cv.classList.add("ready");
+    const ref = cos ? createFigureSet(f.img, { slim: f.slim, k: 3 }).get("idle", 0).fig : null; cv._ref = ref;
+    drawTrim(cv, set.get("idle", 0).fig, ref); cv.classList.add("ready");
     if (set.ench) { cv._set = set; enchCv.add(cv); if (!enchT) enchT = setInterval(enchTick, 90); }
     return;
   } catch (e) { console.warn(e); } }
