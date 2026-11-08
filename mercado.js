@@ -31,7 +31,7 @@ const isAdmin = () => { const u = D && D.auth.currentUser; return !!(u && (u.ema
 const byOrder = (a, b) => (a.order - b.order) || a.name.localeCompare(b.name);
 function norm(id, d) {
   return { id, name: String(d.name || "Sin nombre"), cat: String(d.cat || "items"), kind: d.kind || "", price: Math.max(0, Math.floor(Number(d.price) || 0)), order: Number(d.order) || 0, hidden: d.hidden === true,
-    img: typeof d.img === "string" ? d.img : "", w: Number(d.w) || 16, x: Number(d.x) || 0, y: Number.isFinite(Number(d.y)) ? Number(d.y) : 1, c1: d.c1 || "#888888", c2: d.c2 || "#444444", game: d.game || "end", desc: d.desc || "", model: d.model === true };
+    img: typeof d.img === "string" ? d.img : "", w: Number(d.w) || 16, x: Number(d.x) || 0, y: Number.isFinite(Number(d.y)) ? Number(d.y) : 1, c1: d.c1 || "#888888", c2: d.c2 || "#444444", game: d.game || "end", desc: d.desc || "", model: d.model === true, ench: d.ench === true };
 }
 export function loadShop(force) {
   if (!force && shopP) return shopP;
@@ -105,7 +105,8 @@ export async function decorate({ equip, frameEls = [], bgEl = null }) {
   if (bgEl) applyBg(bgEl, shop.get(eq.bg));
 }
 function thumb(it) {
-  if (it.cat === "hat" || it.cat === "items" || (it.cat === "profile" && !it.kind.startsWith("bg") && !it.kind.startsWith("fr-") && it.img)) return it.img ? `<img class="mk-th px" src="${esc(it.img)}" alt="">` : "";
+  if (it.cat === "hat" || it.cat === "items" || (it.cat === "profile" && !it.kind.startsWith("bg") && !it.kind.startsWith("fr-") && it.img))
+    return it.img ? `<span class="mk-gl${it.ench ? " ench" : ""}" style="--m:url(${esc(it.img)})"><img class="mk-th px" src="${esc(it.img)}" alt=""></span>` : "";
   if (it.kind.startsWith("bg")) return `<i class="mk-sw" style="background:${esc(bgCss(it))}"></i>`;
   if (it.kind.startsWith("fr-")) { const u = D.me(); return `<span class="mk-fh"><img class="px fr ${it.kind}" style="--fc:${esc(it.c1)}" src="${esc(u ? u.avatar : "https://minotar.net/helm/MHF_Steve/64.png")}" alt=""></span>`; }
   return "";
@@ -269,7 +270,7 @@ function renderBook() {
   page = Math.max(0, Math.min(pages - 1, page));
   const slice = list.slice(page * PER, page * PER + PER), grid = q("#mk-grid"); grid.textContent = "";
   slice.forEach(it => {
-    const c = document.createElement("div"); c.className = "mk-card" + (it.id === sel ? " sel" : "") + (owned(it.id) ? " own" : "") + (it.hidden ? " hid" : "");
+    const c = document.createElement("div"); c.className = "mk-card" + (it.ench ? " ench" : "") + (it.id === sel ? " sel" : "") + (owned(it.id) ? " own" : "") + (it.hidden ? " hid" : "");
     c.tabIndex = 0; c.dataset.id = it.id;
     c.innerHTML = `<div class="mk-tw">${thumb(it)}</div><span class="mk-cn">${esc(it.name)}</span>${owned(it.id) ? `<span class="mk-have">${worn(it) ? "PUESTO" : "COMPRADO"}</span>` : price(it.price)}${it.hidden ? `<span class="mk-badge">OCULTO</span>` : ""}`
       + (adminOn ? `<div class="mk-ad"><button type="button" data-a="l" title="Mover antes">◀</button><button type="button" data-a="r" title="Mover después">▶</button><button type="button" data-a="e" title="Editar">✎</button><button type="button" data-a="h" title="${it.hidden ? "Mostrar al público" : "Ocultar al público"}">${it.hidden ? "◌" : "●"}</button><button type="button" data-a="d" title="Eliminar">🗑</button></div>` : "");
@@ -303,7 +304,7 @@ async function showPanel() {
   const it = shop.get(sel || hov), tok = ++panelTok, nm = q("#mk-name"), ds = q("#mk-desc"), pr = q("#mk-price"), bb = q("#mk-buy"), ms = q("#mk-msg");
   ms.textContent = ""; ms.className = "mk-msg";
   if (!it || it.cat !== openCat) { nm.textContent = "Selecciona un artículo"; ds.textContent = ""; pr.innerHTML = ""; bb.disabled = true; bb.textContent = "COMPRAR"; bb.className = "mk-buy"; stage("none"); return; }
-  nm.textContent = it.name; ds.textContent = it.desc || ""; pr.innerHTML = price(it.price);
+  nm.textContent = it.name + (it.ench ? " ✦" : ""); ds.textContent = it.desc || ""; pr.innerHTML = price(it.price);
   const u = D.me(), has = owned(it.id);
   bb.className = "mk-buy"; bb.disabled = false;
   if (has) {
@@ -319,7 +320,7 @@ async function showPanel() {
     ap.setCos(cos);
   } else if (it.cat === "items") {
     stage("3d"); const [img, obj] = await Promise.all([imgOf(it), it.model ? modelOf(it.id) : null]); if (tok !== panelTok || !v3) return;
-    v3.set({ img, bb: obj });
+    v3.set({ img, bb: obj, ench: it.ench });
   } else if (it.cat === "profile") {
     stopStage(); const s = q("#mk-stage"); s.dataset.t = "p";
     const av = esc(u ? u.avatar : "https://minotar.net/helm/MHF_Steve/64.png");
@@ -412,6 +413,7 @@ function editItem(it) {
       <div data-f="hatprev" class="mk-formprev"><canvas width="300" height="340"></canvas></div>
       <label data-f="model">Modelo 3D (.bbmodel de Blockbench, opcional)<input name="obj" type="file" accept=".bbmodel,.json,application/json"></label>
       <label class="chk" data-f="rmmodel" hidden><input name="rmobj" type="checkbox"> Quitar el modelo 3D actual</label>
+      <label class="chk" data-f="ench"><input name="ench" type="checkbox" ${base.ench ? "checked" : ""}> ✦ Encantado (brillo morado)</label>
       <label class="chk"><input name="hidden" type="checkbox" ${base.hidden ? "checked" : ""}> Oculto al público (quien ya lo compró lo sigue usando)</label>
       <p class="err" id="mk-ferr" role="alert"></p>
       <div class="mk-fbtn"><button class="btn" type="button" data-c>Cancelar</button><button class="btn solid" type="submit">Guardar</button></div>
@@ -424,7 +426,7 @@ function editItem(it) {
     const show = (s, on) => { const e = $f(`[data-f="${s}"]`); if (e) e.hidden = !on; };
     show("colors", cat === "profile" && ["bg-solid", "bg-grad", "fr-solid", "fr-neon"].includes(k));
     show("c2", k === "bg-grad"); show("game", k === "bg-game"); show("img", cat !== "profile" || k === "bg-img");
-    show("hat", cat === "hat"); show("hatprev", cat === "hat"); show("model", cat === "items");
+    show("hat", cat === "hat"); show("hatprev", cat === "hat"); show("model", cat === "items"); show("ench", cat === "items" || cat === "hat");
     show("rmmodel", cat === "items" && base.model);
   };
   vis(); if (cat === "profile") f.kind.onchange = vis;
@@ -457,6 +459,7 @@ function editItem(it) {
     if (cat === "profile" && ["bg-solid", "bg-grad", "fr-solid", "fr-neon"].includes(kind)) { data.c1 = f.c1.value; if (kind === "bg-grad") data.c2 = f.c2.value; }
     if (kind === "bg-game") data.game = f.game.value;
     if (cat === "hat") { data.w = Math.max(6, Math.min(26, Number(f.w.value) || 16)); data.y = Number(f.y.value) || 0; data.x = Number(f.x.value) || 0; }
+    if (cat === "items" || cat === "hat") data.ench = f.ench.checked;
     if (cat === "items") data.model = !!(obj || (base.model && !f.rmobj.checked));
     const id = it ? it.id : "i" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), fb = D.fb;
     const sb = f.querySelector("[type=submit]"); sb.disabled = true;
@@ -547,7 +550,7 @@ async function viewItem(it, mine, host, st) {
   let v = null; m._done = () => v && v.stop();
   const cv = m.querySelector("canvas");
   if (it.kind && it.kind !== "bg-img" && !it.img) { cv.replaceWith(Object.assign(document.createElement("div"), { className: "mk-vsw" })); m.querySelector(".mk-vsw").style.background = it.kind.startsWith("bg") ? bgCss(it) : ""; if (it.kind.startsWith("fr-")) m.querySelector(".mk-vsw").innerHTML = thumb(it); }
-  else { v = viewer3d(cv); const [img, obj] = await Promise.all([imgOf(it), it.model ? modelOf(it.id) : null]); v.set({ img, bb: obj }); }
+  else { v = viewer3d(cv); const [img, obj] = await Promise.all([imgOf(it), it.model ? modelOf(it.id) : null]); v.set({ img, bb: obj, ench: it.ench }); }
   const eb = m.querySelector("#mk-eq");
   if (eb) eb.onclick = async () => {
     eb.disabled = true; const turnOn = eb.textContent === "EQUIPAR", ok = await equip(it, turnOn);

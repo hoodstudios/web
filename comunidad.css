@@ -458,7 +458,7 @@ body.mkfix main{padding-bottom:0}
 .mk-fh img{width:min(100%,46px);height:auto;aspect-ratio:1}
 .mk-pg{flex:none;height:2rem}
 .mk-stage{flex:1;min-height:0;min-width:0;width:100%;position:relative;padding-bottom:1rem}
-.mk-av,.mk-3d{position:absolute;inset:0 0 1rem 0;width:100%;height:calc(100% - 1rem);max-width:none;aspect-ratio:auto;object-fit:contain;margin:auto;background:none}
+.mk-stage .mk-av,.mk-stage .mk-3d{position:absolute;inset:0 0 1rem 0;width:100%;height:calc(100% - 1rem);max-width:none;aspect-ratio:auto;object-fit:contain;margin:auto;background:none}
 .mk-tip{position:absolute;left:0;right:0;bottom:0;text-align:center}
 .mk-pv{max-height:92%;max-width:100%;margin:auto}
 .mk-pf{padding:0;display:grid;place-items:center;height:100%}.mk-pf img{width:min(150px,60%);height:auto;aspect-ratio:1}
@@ -490,3 +490,24 @@ body.mkfix main{padding-bottom:0}
 .mk-ar:active{transform:translateY(-50%) scale(.92)}
 @media(max-width:860px){.mk-ar.l{left:.5rem}.mk-ar.r{right:.5rem}}
 @media(max-width:860px){.mk-hint{display:none}.mk-ad button{font-size:.55rem;padding:2px 3px}.mk-card:has(.mk-ad){padding-top:.2rem}}
+
+/* ---- correcciones: inventario, ventana 3D, encantados ---- */
+.mk-vstage{width:100%;display:flex;justify-content:center}
+.mk-vstage .mk-3d{position:static;display:block;width:min(100%,320px);height:auto;aspect-ratio:1}
+.mk-mbox.view{width:min(100%,380px)}
+.mk-inv{grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
+.mk-slot{justify-content:flex-start;min-height:118px;overflow:hidden}
+.mk-slot .mk-tw{width:64px;height:64px;aspect-ratio:auto;flex:none;position:relative}
+.mk-slot .mk-th{max-width:100%;max-height:100%;width:auto;height:auto}
+.mk-slot b{display:block;width:100%;white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+/* brillo morado de lo encantado (miniaturas) */
+.mk-gl{position:relative;display:inline-flex;max-width:100%;max-height:100%}
+.mk-gl.ench::after{content:"";position:absolute;inset:0;-webkit-mask:var(--m) center/contain no-repeat;mask:var(--m) center/contain no-repeat;image-rendering:pixelated;
+  background:linear-gradient(115deg,transparent 40%,rgba(205,140,255,.85) 50%,transparent 60%) 0 0/260% 100%;mix-blend-mode:screen;animation:mkglint 2s linear infinite}
+@keyframes mkglint{from{background-position:130% 0}to{background-position:-130% 0}}
+.mk-card.ench{border-color:#a56bf0;box-shadow:0 0 10px rgba(165,107,240,.55)}
+.mk-card.ench .mk-cn:after,.mk-slot:has(.ench) b:after{content:" ✦";color:#a56bf0}
+/* ranking: se ven 5 filas y el resto con scroll */
+.rk-scroll{max-height:calc(5 * 62px + 4 * .45rem + 1rem)!important}
+.rk-me{flex:none}
+.rk-me .you{width:84px;height:100px;overflow:visible}

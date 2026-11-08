@@ -1919,9 +1919,17 @@ const Elytra = (() => {
     o.type = type; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
     g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + d); o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + d + .03);
   }
+  function noise(d, vol, type, f1, f2, delay = 0, q = 1) {         // ruido filtrado: silbido del cohete y chisporroteo del fuego artificial
+    if (muted) return; const a = ac(); if (!a) return; const t = a.currentTime + delay, n = Math.max(1, Math.floor(a.sampleRate * d)), b = a.createBuffer(1, n, a.sampleRate), ch = b.getChannelData(0);
+    for (let i = 0; i < n; i++) ch[i] = Math.random() * 2 - 1;
+    const s = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain(); s.buffer = b; fl.type = type; fl.Q.value = q;
+    fl.frequency.setValueAtTime(f1, t); fl.frequency.exponentialRampToValueAtTime(f2, t + d); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + d);
+    s.connect(fl); fl.connect(g); g.connect(a.destination); s.start(t);
+  }
+  const blastSfx = (big, delay = 0) => { noise(big ? .45 : .3, big ? .17 : .1, "lowpass", 2600, 140, delay); tone(big ? 110 : 150, .3, "sine", big ? .11 : .06, 35, delay); for (let i = 0; i < (big ? 7 : 3); i++) noise(.05, .05, "highpass", 3200 + Math.random() * 1500, 6000, delay + .15 + i * .07 + Math.random() * .05); };
   const sfx = {
     flap: () => tone(340, .09, "triangle", .035, 190), pass: () => { tone(880, .06, "square", .025); tone(1175, .1, "square", .025, 0, .05); },
-    coin: () => { tone(988, .06, "square", .04); tone(1319, .16, "square", .04, 0, .06); }, dash: () => { tone(180, .4, "sawtooth", .04, 900); tone(90, .35, "square", .03, 400); },
+    coin: () => { tone(988, .06, "square", .04); tone(1319, .16, "square", .04, 0, .06); }, dash: () => { noise(.6, .1, "bandpass", 450, 3400, 0, .8); tone(220, .5, "sawtooth", .018, 800); blastSfx(true, .14); }, blast: () => blastSfx(false),
     ready: () => tone(1500, .1, "triangle", .03), crystal: () => { tone(140, .35, "square", .07, 40); tone(900, .3, "triangle", .05, 2400, .03); }, beam: () => tone(1800, .4, "sawtooth", .03, 300),
     hurt: () => { tone(150, .35, "sawtooth", .06, 60); tone(1200, .15, "square", .03, 300); }, roar: () => { tone(95, .9, "sawtooth", .07, 45); tone(150, .8, "sawtooth", .04, 70, .05); },
     fire: () => tone(420, .25, "sawtooth", .04, 130), breath: () => tone(110, 1.1, "sawtooth", .04, 70), warn: () => { tone(660, .12, "square", .04); tone(660, .12, "square", .04, 0, .18); },
@@ -1977,16 +1985,23 @@ const Elytra = (() => {
   });
   const coinsPending = () => s.coinsObj.length;
   function startGame() { s = fresh(); st = "ready"; csLoad(); csRemote(); loadBest(); loadFace(); ptr.clear(); }
-  function burst(x, y, cols, n, o = {}) { for (let i = 0; i < n && s.pts.length < 600; i++) { const a = rnd(0, 6.283), v = rnd(.3, 1) * (o.sp || 160); s.pts.push({ x, y, vx: Math.cos(a) * v + (o.vx || 0), vy: Math.sin(a) * v + (o.vy || 0), l: rnd(.35, .9) * (o.life || 1), m: .9 * (o.life || 1), c: cols[i % cols.length], sz: rnd(2, o.sz || 5), g: o.g === undefined ? 260 : o.g }); } }
+  function burst(x, y, cols, n, o = {}) { for (let i = 0; i < n && s.pts.length < 600; i++) { const a = rnd(0, 6.283), v = (o.ring ? rnd(.88, 1) : rnd(.3, 1)) * (o.sp || 160); s.pts.push({ x, y, vx: Math.cos(a) * v + (o.vx || 0), vy: Math.sin(a) * v + (o.vy || 0), l: rnd(.35, .9) * (o.life || 1), m: .9 * (o.life || 1), c: cols[i % cols.length], sz: rnd(2, o.sz || 5), g: o.g === undefined ? 260 : o.g }); } }
   function flap() {
     if (st === "over") { if (performance.now() - overAt > 650) startGame(); return; }
     ac(); if (s.paused) { s.paused = false; return; } if (s.dead) return;
     if (!s.run) { s.run = true; st = "run"; sfx.ready(); }
     if (s.dashT > 0) return; s.vy = -430; s.fk = 0; s.flapN++; sfx.flap(); burst(s.x - 8, s.y + 8, ["#e8e8ff", "#a9a9c9"], 3, { sp: 70, g: 120, sz: 3, life: .6, vx: -60 });
   }
+  const FW = ["#b02e26", "#f9801d", "#fed83d", "#80c71f", "#3ab3da", "#8932b8", "#f38baa", "#ffffff"];       // colores de tinte de Minecraft
+  function firework(x, y, n, big) {                          // explosión de fuego artificial: bola de chispas de 2 colores + núcleo blanco
+    const a = FW[Math.random() * FW.length | 0], b = FW[Math.random() * FW.length | 0], sp = big ? 340 : 210;
+    burst(x, y, [a, a, b], n, { ring: true, sp, g: 120, sz: big ? 9 : 6, life: big ? 1.25 : .9 });
+    burst(x, y, ["#ffffff", "#fff3b0"], Math.round(n / 3), { ring: true, sp: sp * .45, g: 100, sz: 6, life: .8 });
+    if (big) burst(x, y, [b, "#ffffff"], Math.round(n / 2), { ring: true, sp: sp * .7, g: 140, sz: 6, life: 1.1 });
+  }
   function dash() {
     if (!s || !s.run || s.dead || s.paused || s.dashCd > 0) return; s.dashT = .45; s.dashCd = 5; s.dashed = true; s.vy = Math.min(s.vy, 0) * .2; s.dashFade = 1; sfx.dash(); s.shake = Math.max(s.shake, 4);
-    burst(s.x - 14, s.y, ["#ffcf6b", "#ff7a2e", "#ffffff"], 18, { sp: 220, g: 0, sz: 5, life: .7, vx: -200 }); s.rings.push({ x: s.x, y: s.y, t: 0, c: "#ffd27a" });
+    firework(s.x - 16, s.y, 40, true); s.rings.push({ x: s.x, y: s.y, t: 0, c: "#ffd27a" }); s.fwT = 0;
   }
   function kill(why) {
     if (s.dead) return; s.dead = true; st = "over"; overAt = performance.now(); s.deadT = 0; s.shake = 14; s.flash = .25; s.flashC = "#ff5ad9"; s.vy = -260; s.spin = Math.random() < .5 ? -1 : 1; sfx.over();
@@ -2081,7 +2096,13 @@ const Elytra = (() => {
     if (s.paused) return;
     if (s.dead) { s.deadT += dt; s.vy = Math.min(s.vy + 1500 * dt, 800); s.y += s.vy * dt; s.ang += 7 * s.spin * dt; s.pillars.forEach(p => { p.x -= 40 * dt; }); updBoss(dt); return; }
     s.sec += dt; s.ms = s.sec * 1000; const base = Math.min(310, 165 + s.sec * 1.5) * (s.bossMode ? .88 : 1), v = base * (s.dashT > 0 ? 2.3 : 1);
-    if (s.dashT > 0) { s.dashT -= dt; s.vy += (0 - s.vy) * Math.min(1, 20 * dt); s.y += s.vy * dt; if (Math.random() < .9) burst(s.x - 22, s.y + rnd(-3, 3), ["#ffcf6b", "#ff7a2e", "#ffffff", "#9a9ab0"], 2, { sp: 60, g: 0, sz: 5, life: .55, vx: -260 }); }
+    if (s.dashT > 0) {
+      s.dashT -= dt; s.vy += (0 - s.vy) * Math.min(1, 20 * dt); s.y += s.vy * dt;
+      burst(s.x - 22, s.y + rnd(-3, 3), ["#fff3b0", "#ffd27a", "#ffb347"], 2, { sp: 40, g: 0, sz: 4, life: .5, vx: -260 });        // chispas del cohete
+      if (Math.random() < .7) burst(s.x - 26, s.y + rnd(-4, 4), ["#8a8a96", "#c8c8d4"], 1, { sp: 18, g: -30, sz: 8, life: .85, vx: -200 });   // humo
+      s.fwT = (s.fwT || 0) - dt; if (s.fwT <= 0) { s.fwT = .12; firework(s.x - 44, s.y + rnd(-8, 8), 9, false); }
+      if (s.dashT <= 0) { firework(s.x + 8, s.y, 46, true); sfx.blast(); s.shake = Math.max(s.shake, 3); }
+    }
     else { s.vy = Math.min(s.vy + 1450 * dt, 700); s.y += s.vy * dt; }
     if (s.dashCd > 0) { s.dashCd -= dt; if (s.dashCd <= 0) { s.dashCd = 0; sfx.ready(); burst(s.x, s.y + 30, ["#ffffff", "#ffcf6b"], 8, { sp: 90, g: 0, sz: 3, life: .5 }); } }
     if (s.y < 16) { s.y = 16; if (s.vy < 0) s.vy = 0; } if (s.y > LH + 50) { kill("void"); return; }
@@ -2187,8 +2208,8 @@ const Elytra = (() => {
     const f = 62 / figs.feet, { fig, gx, gy } = figs.get("walk", 0), cy = figs.feet * .5 * f;
     const open = .2 + (s.fk < 1 ? 1.0 * Math.sin(s.fk * Math.PI) : 0) + .06 * Math.sin(s.t * 4), sh = { x: figs.w * f * .06, y: -figs.feet * f * .7 + cy };
     c.save(); c.translate(sh.x + 3, sh.y); drawWing(f, -open * .85, true); c.restore();
+    c.save(); c.translate(sh.x, sh.y); drawWing(f, -open, false); c.restore();               // las dos elytras van detrás del avatar
     c.imageSmoothingEnabled = false; c.drawImage(fig, -figs.w * f / 2 + gx * f, cy - figs.feet * f + gy * f, fig.width * f, fig.height * f);
-    c.save(); c.translate(sh.x, sh.y); drawWing(f, -open, false); c.restore();
     void bobAng; c.restore();
   }
   function crystalImg() { return crysSp; }

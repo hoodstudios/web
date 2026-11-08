@@ -1,6 +1,8 @@
-/* Visor 3D sencillo (canvas 2D, sin librerías).
+/* Visor 3D sencillo con rasterizador por software (z-buffer), sin librerías.
  *  - Textura 2D  -> se extruye como los items de Minecraft (cada píxel opaco es un cubito, con grosor).
- *  - Modelo OBJ  -> malla de triángulos con sombreado plano.
+ *  - Modelo .bbmodel (Blockbench) -> cubos con sus texturas, recortes y rotaciones.
+ *  El z-buffer evita las partes "transparentes" que salían al ordenar caras. Incluye brillo especular,
+ *  un destello que barre el modelo y, opcionalmente, el brillo morado de los objetos encantados.
  *  Arrastra para girar; si no lo tocas gira solo. */
 
 const MAXPX = 32;
@@ -32,33 +34,6 @@ function buildExtrude(img) {
     if (!on(x, y + 1)) q([X0, Y1, th, X1, Y1, th, X1, Y1, -th, X0, Y1, -th], [0, 1, 0], col);
   }
   return faces;
-}
-
-function buildObj(text, color) {
-  const vs = [], faces = [];
-  const lines = String(text).split("\n");
-  for (const ln of lines) {
-    const p = ln.trim().split(/\s+/);
-    if (p[0] === "v") vs.push([+p[1] || 0, -(+p[2] || 0), +p[3] || 0]);                 // y invertida: la pantalla crece hacia abajo
-    else if (p[0] === "f") {
-      const idx = p.slice(1).map(s => { let n = parseInt(s.split("/")[0], 10); return n < 0 ? vs.length + n : n - 1; }).filter(n => vs[n]);
-      for (let i = 1; i + 1 < idx.length; i++) faces.push([idx[0], idx[i], idx[i + 1]]);
-    }
-  }
-  if (!vs.length || !faces.length) return [];
-  let mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
-  vs.forEach(v => v.forEach((a, k) => { if (a < mn[k]) mn[k] = a; if (a > mx[k]) mx[k] = a; }));
-  const ctr = mn.map((a, k) => (a + mx[k]) / 2), size = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) || 1;
-  const T = vs.map(v => v.map((a, k) => (a - ctr[k]) / size));
-  const col = color || [170, 170, 185], out = [];
-  for (const f of faces.slice(0, 20000)) {
-    const [a, b, c] = f.map(i => T[i]);
-    const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-    let n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
-    const l = Math.hypot(n[0], n[1], n[2]) || 1; n = n.map(a => -a / l);              // la y invertida cambia el sentido
-    out.push({ v: [...a, ...b, ...c], n, c: col, tri: true, two: true });
-  }
-  return out;
 }
 
 /* ---- Modelos de Blockbench (.bbmodel): cubos con sus texturas incrustadas ---- */
@@ -126,36 +101,34 @@ function buildBB(text) {
     return { v: [...q[0], ...q[1], ...q[2], ...q[3]], n, c: [150, 150, 160], tex: { t: r.tx, uv: r.uv } };
   });
 }
-function drawTex(g, dpr, P, f, X, Y, sh) {
-  const { t, uv } = f.tex, im = t.im; if (!im.complete || !im.naturalWidth) return;
-  const sx = im.naturalWidth / t.uw, sy = im.naturalHeight / t.vh, u0 = uv[0] * sx, v0 = uv[1] * sy, u1 = uv[2] * sx, v1 = uv[3] * sy;
-  if (u1 === u0 || v1 === v0) return;
-  const p0 = [X(P[0]), Y(P[0])], p1 = [X(P[1]), Y(P[1])], p3 = [X(P[3]), Y(P[3])];
-  const a = (p1[0] - p0[0]) / (u1 - u0), b = (p1[1] - p0[1]) / (u1 - u0), c = (p3[0] - p0[0]) / (v1 - v0), d = (p3[1] - p0[1]) / (v1 - v0);
-  g.save(); g.beginPath(); P.forEach((p, i) => (i ? g.lineTo(X(p), Y(p)) : g.moveTo(X(p), Y(p)))); g.closePath(); g.clip();
-  g.setTransform(dpr * a, dpr * b, dpr * c, dpr * d, dpr * (p0[0] - a * u0 - c * v0), dpr * (p0[1] - b * u0 - d * v0));
-  g.imageSmoothingEnabled = false;
-  const ux = Math.min(u0, u1), vy = Math.min(v0, v1), uw = Math.abs(u1 - u0), vh = Math.abs(v1 - v0);
-  g.drawImage(im, ux, vy, uw, vh, ux, vy, uw, vh);
-  g.restore();
-  g.fillStyle = `rgba(0,0,0,${(0.55 * (1 - sh)).toFixed(3)})`; g.beginPath(); P.forEach((p, i) => (i ? g.lineTo(X(p), Y(p)) : g.moveTo(X(p), Y(p)))); g.closePath(); g.fill();
-}
-
 export function avgColor(img) {
   try { const { d } = pixelsOf(img); let r = 0, g = 0, b = 0, n = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 40) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; } return n ? [r / n | 0, g / n | 0, b / n | 0] : null; } catch (e) { return null; }
 }
 
-/* canvas: el elemento donde dibujar. Devuelve { set({img,obj,color}), stop() } */
+
+const LX = -0.45, LY = -0.6, LZ = 0.66, LL = Math.hypot(LX, LY, LZ), L = [LX / LL, LY / LL, LZ / LL];
+const HV = (() => { const h = [L[0], L[1], L[2] + 1], l = Math.hypot(h[0], h[1], h[2]); return [h[0] / l, h[1] / l, h[2] / l]; })();
+
+function texPix(t) {                                         // píxeles de la textura (una vez que cargó)
+  if (t.pix) return t.pix;
+  const im = t.im; if (!im.complete || !im.naturalWidth) return null;
+  const c = document.createElement("canvas"); c.width = im.naturalWidth; c.height = im.naturalHeight; const g = c.getContext("2d"); g.drawImage(im, 0, 0);
+  return (t.pix = { d: g.getImageData(0, 0, c.width, c.height).data, w: c.width, h: c.height });
+}
+
+/* canvas: el elemento donde dibujar. Devuelve { set({img,bb,ench}), stop() } */
 export function viewer3d(canvas, src = {}) {
-  let faces = [], yaw = 0.6, pitch = -0.28, drag = null, last = performance.now(), stopped = false, resumeAt = 0, raf = 0;
-  const g = canvas.getContext("2d");
+  let faces = [], rad = 0.6, ench = false, yaw = 0.6, pitch = -0.25, drag = null, last = performance.now(), stopped = false, resumeAt = 0, raf = 0, t0 = performance.now();
+  const vis = canvas.getContext("2d"), off = document.createElement("canvas"), og = off.getContext("2d");
+  let buf = null, depth = null, RW = 0, RH = 0;
   function set(s) {
     try {
       if (s && s.bb) faces = buildBB(s.bb);
-      else if (s && s.obj) faces = buildObj(s.obj, s.color || (s.img && avgColor(s.img)));
       else if (s && s.img && s.img.width) faces = buildExtrude(s.img);
       else faces = [];
-    } catch (e) { faces = []; }
+    } catch (e) { console.warn("visor3d:", e); faces = []; }
+    ench = !!(s && s.ench);
+    rad = 0.3; faces.forEach(f => { for (let i = 0; i < f.v.length; i += 3) rad = Math.max(rad, Math.hypot(f.v[i], f.v[i + 1], f.v[i + 2])); });
   }
   set(src);
   const down = e => { drag = { x: e.clientX, y: e.clientY, yaw, pitch }; try { canvas.setPointerCapture(e.pointerId); } catch (_) {} e.preventDefault(); };
@@ -170,35 +143,52 @@ export function viewer3d(canvas, src = {}) {
     raf = requestAnimationFrame(frame);
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (!drag && now > resumeAt) yaw += dt * 0.9;
-    const dpr = Math.min(2, window.devicePixelRatio || 1), W = canvas.clientWidth, H = canvas.clientHeight;
-    if (!W || !H) return;
-    if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
-    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
-    const S = Math.min(W, H) * 0.78, cx = W / 2, cy = H / 2;
+    const dpr = Math.min(2, window.devicePixelRatio || 1), cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (!cw || !ch) return;
+    const OW = Math.round(cw * dpr), OH = Math.round(ch * dpr);
+    if (canvas.width !== OW || canvas.height !== OH) { canvas.width = OW; canvas.height = OH; }
+    const ss = Math.min(1.6, 560 / Math.max(OW, OH)), W = Math.max(8, Math.round(OW * ss)), H = Math.max(8, Math.round(OH * ss));   // se dibuja un poco más grande y se reduce: bordes suaves
+    if (W !== RW || H !== RH) { RW = W; RH = H; off.width = W; off.height = H; buf = og.createImageData(W, H); depth = new Float32Array(W * H); }
+    const px = buf.data; px.fill(0); depth.fill(-1e9);
+    const tm = (now - t0) / 1000, S = Math.min(W, H) * 0.46 / rad, cx = W / 2, cy = H / 2;
     const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
-    const rot = (x, y, z) => {                                                       // yaw (Y) y luego pitch (X)
-      const x1 = x * cyw + z * syw, z1 = -x * syw + z * cyw;
-      return [x1, y * cp - z1 * sp, y * sp + z1 * cp];
-    };
-    const list = [];
+    const rot = (x, y, z) => { const x1 = x * cyw + z * syw, z1 = -x * syw + z * cyw; return [x1, y * cp - z1 * sp, y * sp + z1 * cp]; };
+    const sweepP = (tm * 0.5) % 2.4 - 0.7;                                   // posición del destello (0..1 = de una esquina a la otra)
     for (const f of faces) {
-      const n = rot(f.n[0], f.n[1], f.n[2]);
-      if (n[2] <= 0 && !f.two) continue;                                             // cara de atrás
-      const k = f.tri ? 3 : 4, P = [];
-      let z = 0;
-      for (let i = 0; i < k; i++) { const r = rot(f.v[i * 3], f.v[i * 3 + 1], f.v[i * 3 + 2]); P.push(r); z += r[2]; }
-      list.push({ f, P, z: z / k, nz: f.two && n[2] < 0 ? -n[2] : n[2], n });
+      const n = rot(f.n[0], f.n[1], f.n[2]); if (n[2] <= 0.001) continue;
+      const P = [rot(f.v[0], f.v[1], f.v[2]), rot(f.v[3], f.v[4], f.v[5]), rot(f.v[6], f.v[7], f.v[8]), rot(f.v[9], f.v[10], f.v[11])];
+      const lam = Math.max(0, n[0] * L[0] + n[1] * L[1] + n[2] * L[2]), dif = 0.52 + 0.58 * lam;
+      const sp2 = Math.pow(Math.max(0, n[0] * HV[0] + n[1] * HV[1] + n[2] * HV[2]), 26) * 150 + Math.pow(1 - n[2], 3) * 14;   // reflejo
+      let tx = null, uv = null;
+      if (f.tex) { tx = texPix(f.tex.t); if (!tx) continue; const sx = tx.w / f.tex.t.uw, sy = tx.h / f.tex.t.vh, u = f.tex.uv; uv = [[u[0] * sx, u[1] * sy], [u[2] * sx, u[1] * sy], [u[2] * sx, u[3] * sy], [u[0] * sx, u[3] * sy]]; }
+      const X = P.map(p => cx + p[0] * S), Y = P.map(p => cy + p[1] * S), Z = P.map(p => p[2]);
+      for (const [a, b, c2] of [[0, 1, 2], [0, 2, 3]]) {
+        const x0 = X[a], y0 = Y[a], x1 = X[b], y1 = Y[b], x2 = X[c2], y2 = Y[c2];
+        const den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2); if (Math.abs(den) < 1e-6) continue;
+        const minx = Math.max(0, Math.floor(Math.min(x0, x1, x2))), maxx = Math.min(W - 1, Math.ceil(Math.max(x0, x1, x2)));
+        const miny = Math.max(0, Math.floor(Math.min(y0, y1, y2))), maxy = Math.min(H - 1, Math.ceil(Math.max(y0, y1, y2)));
+        for (let y = miny; y <= maxy; y++) for (let x = minx; x <= maxx; x++) {
+          const qx = x + 0.5, qy = y + 0.5;
+          const w0 = ((y1 - y2) * (qx - x2) + (x2 - x1) * (qy - y2)) / den, w1 = ((y2 - y0) * (qx - x2) + (x0 - x2) * (qy - y2)) / den, w2 = 1 - w0 - w1;
+          if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) continue;
+          const z = w0 * Z[a] + w1 * Z[b] + w2 * Z[c2], di = y * W + x; if (z <= depth[di]) continue;
+          let r, g, bl;
+          if (tx) {
+            const u = w0 * uv[a][0] + w1 * uv[b][0] + w2 * uv[c2][0], v = w0 * uv[a][1] + w1 * uv[b][1] + w2 * uv[c2][1];
+            const ix = Math.min(tx.w - 1, Math.max(0, u | 0)), iy = Math.min(tx.h - 1, Math.max(0, v | 0)), ti = (iy * tx.w + ix) * 4;
+            if (tx.d[ti + 3] < 110) continue; r = tx.d[ti]; g = tx.d[ti + 1]; bl = tx.d[ti + 2];
+          } else { r = f.c[0]; g = f.c[1]; bl = f.c[2]; }
+          depth[di] = z;
+          r = r * dif + sp2; g = g * dif + sp2; bl = bl * dif + sp2;
+          const d = ((qx + qy) / (W + H) - sweepP) / 0.07, sw = d > -1 && d < 1 ? (1 - d * d) * 55 : 0;     // destello que cruza el modelo
+          r += sw; g += sw; bl += sw;
+          if (ench) { const q1 = Math.sin((qx - qy) * 0.07 / ss + tm * 2.4) * 0.5 + 0.5, q2 = Math.sin((qx + qy * 0.5) * 0.05 / ss - tm * 1.7) * 0.5 + 0.5, k = q1 * q1 * q2 * 0.9; r += 130 * k; g += 50 * k; bl += 240 * k; }
+          const o = di * 4; px[o] = r > 255 ? 255 : r; px[o + 1] = g > 255 ? 255 : g; px[o + 2] = bl > 255 ? 255 : bl; px[o + 3] = 255;
+        }
+      }
     }
-    list.sort((a, b) => a.z - b.z);
-    for (const it of list) {
-      const sh = 0.45 + 0.55 * Math.max(0, it.nz * 0.7 + (-it.n[1]) * 0.35 + it.n[0] * 0.15);
-      const c = it.f.c;
-      if (it.f.tex) { drawTex(g, dpr, it.P, it.f, p => cx + p[0] * S, p => cy + p[1] * S, sh); continue; }
-      g.fillStyle = g.strokeStyle = `rgb(${Math.min(255, c[0] * sh) | 0},${Math.min(255, c[1] * sh) | 0},${Math.min(255, c[2] * sh) | 0})`;
-      g.lineWidth = 0.7; g.beginPath();
-      it.P.forEach((p, i) => { const X = cx + p[0] * S, Y = cy + p[1] * S; i ? g.lineTo(X, Y) : g.moveTo(X, Y); });
-      g.closePath(); g.fill(); g.stroke();
-    }
+    og.putImageData(buf, 0, 0);
+    vis.setTransform(1, 0, 0, 1, 0, 0); vis.clearRect(0, 0, OW, OH); vis.imageSmoothingEnabled = true; vis.imageSmoothingQuality = "high"; vis.drawImage(off, 0, 0, OW, OH);
   }
   raf = requestAnimationFrame(frame);
   return { set, stop() { stopped = true; cancelAnimationFrame(raf); } };
