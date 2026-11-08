@@ -111,6 +111,7 @@ function route() {
   if (cur === "perfil") renderProfile(arg);
   if (cur === "juego") Arcade.enter(); else Arcade.leave();
   if (cur === "mercado") Mercado.enter(); else Mercado.leave();
+  document.body.classList.toggle("mkfix", cur === "mercado");
   document.body.classList.toggle("noscroll", cur === "juego");
   document.body.classList.toggle("plfix", cur === "jugadores");
   if (cur === "jugadores") { fitPlayers(); requestAnimationFrame(fitPlayers); }

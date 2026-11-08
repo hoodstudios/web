@@ -3,15 +3,15 @@
  * Datos: colección "shop" (artículos), "shop_models" (OBJ de los items) y, en el perfil del jugador, "inv" (comprados) y "equip" (puesto).
  * Las dependencias llegan desde main.js con Mercado.init(...) para no duplicar Firebase. */
 import { createFigureSet, ANIMS } from "./avatar.js";
-import { viewer3d } from "./viewer3d.js";
+import { viewer3d, parseBB } from "./viewer3d.js";
 
 const ADMIN_EMAIL = "hoodstudio@hoodstudio.app";
 const CATS = [
-  { id: "hat", name: "Sombreros", book: "gold", on: true, tip: "Estilo para tu avatar" },
-  { id: "profile", name: "Perfil", book: "orange", on: true, tip: "Fondos y marcos de tu perfil" },
-  { id: "pets", name: "Mascotas", book: "purple", on: false, tip: "Compañeros para tu habitación" },
-  { id: "furn", name: "Muebles", book: "green", on: false, tip: "Decora tu habitación" },
-  { id: "items", name: "Items", book: "blue", on: true, tip: "Para exhibir en tu inventario" }
+  { id: "hat", name: "Sombreros", book: "gold", col: "#f5c93a", on: true, tip: "Estilo para tu avatar" },
+  { id: "profile", name: "Perfil", book: "orange", col: "#e8742a", on: true, tip: "Fondos y marcos de tu perfil" },
+  { id: "pets", name: "Mascotas", book: "purple", col: "#9a4fe0", on: false, tip: "Compañeros para tu habitación" },
+  { id: "furn", name: "Muebles", book: "green", col: "#33b25a", on: false, tip: "Decora tu habitación" },
+  { id: "items", name: "Items", book: "blue", col: "#3a64e0", on: true, tip: "Para exhibir en tu inventario" }
 ];
 const KINDS = {
   "bg-solid": "Fondo de color sólido", "bg-grad": "Fondo con degradado", "bg-game": "Fondo de minijuego", "bg-img": "Fondo con imagen",
@@ -63,7 +63,7 @@ export async function hatCos(id) {
 async function modelOf(id) {
   if (modelCache.has(id)) return modelCache.get(id);
   let t = null;
-  try { const s = await D.fb.getDoc(D.fb.doc(D.db, "shop_models", id)); t = s.exists() ? s.data().obj || null : null; } catch (e) { /* sin modelo */ }
+  try { const s = await D.fb.getDoc(D.fb.doc(D.db, "shop_models", id)); t = s.exists() ? s.data().bb || null : null; } catch (e) { /* sin modelo */ }
   modelCache.set(id, t); return t;
 }
 function coinIcon() {
@@ -151,6 +151,7 @@ function avatarPreview(cv, onFail) {
 /* ---------- carrusel ---------- */
 function buildCarousel() {
   root.innerHTML = `
+    <div class="mk-bg" aria-hidden="true"></div>
     <div class="mk-top"><h2>Mercado</h2><span class="mk-coins" id="mk-coins"></span></div>
     <div class="mk-view" id="mk-cv">
       <p class="mk-hint">Elige un catálogo</p>
@@ -164,11 +165,12 @@ function buildCarousel() {
     <div class="mk-view" id="mk-bv" hidden></div>`;
   const track = q("#mk-track"), books = [...track.querySelectorAll(".mk-bk")];
   books.forEach(b => (b._o = 99));
-  const layout = () => {
+  const layout = (anim, dir = 1) => {
     const W = track.clientWidth || 600, N = CATS.length;
+    root.style.setProperty("--bk", CATS[cur].col);
     books.forEach((b, i) => {
       let o = ((i - cur) % N + N) % N; if (o > N / 2) o -= N;
-      const sm = W < 520, a = Math.abs(o), s = (sm ? [1, .5, .3] : [1, .6, .38])[a] || .3, dx = (sm ? [0, .36, .56] : [0, .31, .5])[a] * W * Math.sign(o), op = [1, .92, .55][a] ?? .5;
+      const sm = W < 520, a = Math.abs(o), s = (sm ? [1, .5, .3] : [1, .6, .38])[a] || .3, dx = (sm ? [0, .34, .5] : [0, .3, .43])[a] * W * Math.sign(o), op = [1, .92, .55][a] ?? .5;
       const jump = b._o !== 99 && Math.abs(o - b._o) > 2;
       if (jump) { b.style.transition = "none"; b.style.opacity = "0"; }
       b.style.transform = `translate(calc(-50% + ${dx}px), -50%) scale(${s})`; b.style.zIndex = 10 - a;
@@ -177,11 +179,22 @@ function buildCarousel() {
       if (jump) { void b.offsetWidth; b.style.transition = ""; }
       b.style.opacity = op; b._o = o;
     });
+    const cap = q(".mk-cap");
+    if (anim) {
+      cap.style.setProperty("--dir", dir); cap.classList.remove("swap"); void cap.offsetWidth; cap.classList.add("swap");
+      const cb = books[cur]; cb.classList.remove("pop"); void cb.offsetWidth; cb.classList.add("pop");
+      const car = q(".mk-car");
+      for (let i = 0; i < 12; i++) {
+        const s = document.createElement("i"), ang = Math.random() * 6.283, d = 90 + Math.random() * 130;
+        s.className = "mk-sp"; s.style.cssText = `--x:${Math.cos(ang) * d}px;--y:${Math.sin(ang) * d * .7}px;--d:${(Math.random() * .15).toFixed(2)}s;--z:${3 + Math.random() * 5 | 0}px`;
+        car.append(s); setTimeout(() => s.remove(), 1100);
+      }
+    }
     q("#mk-cn").textContent = CATS[cur].name.toUpperCase();
     q("#mk-ct").textContent = CATS[cur].on ? CATS[cur].tip : "Próximamente";
     const ob = q("#mk-open"); ob.disabled = !CATS[cur].on; ob.textContent = CATS[cur].on ? "Abrir" : "Próximamente";
   };
-  const go = d => { cur = ((cur + d) % CATS.length + CATS.length) % CATS.length; layout(); };
+  const go = d => { cur = ((cur + d) % CATS.length + CATS.length) % CATS.length; layout(true, Math.sign(d) || 1); };
   const open = () => { if (CATS[cur].on) openBook(CATS[cur].id); };
   q(".mk-ar.l").onclick = () => go(-1); q(".mk-ar.r").onclick = () => go(1); q("#mk-open").onclick = open;
   let drag = null, moved = false, lockW = 0;
@@ -192,7 +205,7 @@ function buildCarousel() {
     const i = +b.dataset.i; if (i === cur) open(); else { const N = CATS.length; let o = ((i - cur) % N + N) % N; if (o > N / 2) o -= N; go(o); }
   });
   q(".mk-car").addEventListener("wheel", e => { if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) || Date.now() < lockW) return; e.preventDefault(); lockW = Date.now() + 380; go(e.deltaX > 0 ? 1 : -1); }, { passive: false });
-  root._layout = layout; layout(); setTimeout(layout, 60);
+  root._layout = () => layout(); layout(); setTimeout(layout, 60);
   root._go = go; root._open = open;
 }
 
@@ -306,7 +319,7 @@ async function showPanel() {
     ap.setCos(cos);
   } else if (it.cat === "items") {
     stage("3d"); const [img, obj] = await Promise.all([imgOf(it), it.model ? modelOf(it.id) : null]); if (tok !== panelTok || !v3) return;
-    v3.set({ img, obj });
+    v3.set({ img, bb: obj });
   } else if (it.cat === "profile") {
     stopStage(); const s = q("#mk-stage"); s.dataset.t = "p";
     const av = esc(u ? u.avatar : "https://minotar.net/helm/MHF_Steve/64.png");
@@ -397,7 +410,7 @@ function editItem(it) {
       <label data-f="img">Imagen (PNG)<input name="img" type="file" accept="image/png,image/webp,image/jpeg"></label>
       <div class="mk-row" data-f="hat"><label>Ancho<input name="w" type="number" min="6" max="26" step="0.5" value="${base.w}"></label><label>Alto<input name="y" type="number" min="-10" max="12" step="0.5" value="${base.y}"></label><label>Desplazar<input name="x" type="number" min="-8" max="8" step="0.5" value="${base.x}"></label></div>
       <div data-f="hatprev" class="mk-formprev"><canvas width="300" height="340"></canvas></div>
-      <label data-f="model">Modelo 3D (.obj, opcional)<input name="obj" type="file" accept=".obj,text/plain"></label>
+      <label data-f="model">Modelo 3D (.bbmodel de Blockbench, opcional)<input name="obj" type="file" accept=".bbmodel,.json,application/json"></label>
       <label class="chk" data-f="rmmodel" hidden><input name="rmobj" type="checkbox"> Quitar el modelo 3D actual</label>
       <label class="chk"><input name="hidden" type="checkbox" ${base.hidden ? "checked" : ""}> Oculto al público (quien ya lo compró lo sigue usando)</label>
       <p class="err" id="mk-ferr" role="alert"></p>
@@ -423,7 +436,11 @@ function editItem(it) {
   };
   if (cat === "hat") { ["w", "x", "y"].forEach(n => f[n].oninput = updPrev); updPrev(); }
   f.img.onchange = async () => { ferr.textContent = ""; const fl = f.img.files[0]; if (!fl) return; try { img = await readImg(fl, cat === "hat" ? 64 : cat === "profile" ? 480 : 128); updPrev(); } catch (e) { ferr.textContent = e.message; f.img.value = ""; } };
-  f.obj.onchange = async () => { ferr.textContent = ""; const fl = f.obj.files[0]; if (!fl) return; if (fl.size > 650000) { ferr.textContent = "El modelo pesa demasiado (máx. ~650 KB)."; f.obj.value = ""; return; } obj = await fl.text(); if (!/^\s*v\s/m.test(obj) || !/^\s*f\s/m.test(obj)) { ferr.textContent = "El archivo no parece un .obj válido."; obj = null; f.obj.value = ""; } };
+  f.obj.onchange = async () => {
+    ferr.textContent = ""; const fl = f.obj.files[0]; if (!fl) return;
+    if (fl.size > 900000) { ferr.textContent = "El modelo pesa demasiado (máx. ~900 KB). Reduce o comprime la textura en Blockbench."; f.obj.value = ""; return; }
+    try { obj = await fl.text(); parseBB(obj); } catch (e) { ferr.textContent = "El archivo no es un .bbmodel válido."; obj = null; f.obj.value = ""; }
+  };
   $f("[data-c]").onclick = () => m.close();
   f.onsubmit = async e => {
     e.preventDefault(); ferr.textContent = "";
@@ -446,7 +463,7 @@ function editItem(it) {
     try {
       await fb.setDoc(fb.doc(D.db, "shop", id), data);
       if (cat === "items") {
-        if (obj) { await fb.setDoc(fb.doc(D.db, "shop_models", id), { obj }); modelCache.delete(id); }
+        if (obj) { await fb.setDoc(fb.doc(D.db, "shop_models", id), { bb: obj }); modelCache.delete(id); }
         else if (base.model && f.rmobj.checked) { await fb.deleteDoc(fb.doc(D.db, "shop_models", id)); modelCache.delete(id); }
       }
       imgCache.clear(); await loadShop(true); m.close(); sel = id; renderBook();
@@ -530,7 +547,7 @@ async function viewItem(it, mine, host, st) {
   let v = null; m._done = () => v && v.stop();
   const cv = m.querySelector("canvas");
   if (it.kind && it.kind !== "bg-img" && !it.img) { cv.replaceWith(Object.assign(document.createElement("div"), { className: "mk-vsw" })); m.querySelector(".mk-vsw").style.background = it.kind.startsWith("bg") ? bgCss(it) : ""; if (it.kind.startsWith("fr-")) m.querySelector(".mk-vsw").innerHTML = thumb(it); }
-  else { v = viewer3d(cv); const [img, obj] = await Promise.all([imgOf(it), it.model ? modelOf(it.id) : null]); v.set({ img, obj }); }
+  else { v = viewer3d(cv); const [img, obj] = await Promise.all([imgOf(it), it.model ? modelOf(it.id) : null]); v.set({ img, bb: obj }); }
   const eb = m.querySelector("#mk-eq");
   if (eb) eb.onclick = async () => {
     eb.disabled = true; const turnOn = eb.textContent === "EQUIPAR", ok = await equip(it, turnOn);

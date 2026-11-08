@@ -61,6 +61,86 @@ function buildObj(text, color) {
   return out;
 }
 
+/* ---- Modelos de Blockbench (.bbmodel): cubos con sus texturas incrustadas ---- */
+const rotPt = (p, o, r) => {
+  let x = p[0] - o[0], y = p[1] - o[1], z = p[2] - o[2];
+  const rx = (r[0] || 0) * Math.PI / 180, ry = (r[1] || 0) * Math.PI / 180, rz = (r[2] || 0) * Math.PI / 180;
+  let c = Math.cos(rx), s = Math.sin(rx); [y, z] = [y * c - z * s, y * s + z * c];
+  c = Math.cos(ry); s = Math.sin(ry); [x, z] = [x * c + z * s, -x * s + z * c];
+  c = Math.cos(rz); s = Math.sin(rz); [x, y] = [x * c - y * s, x * s + y * c];
+  return [x + o[0], y + o[1], z + o[2]];
+};
+function boxUv(el, w, h, d) {
+  const [u, v] = el.uv_offset || [0, 0];
+  return { north: [u + d, v + d, u + d + w, v + d + h], east: [u, v + d, u + d, v + d + h], south: [u + 2 * d + w, v + d, u + 2 * d + 2 * w, v + d + h],
+    west: [u + d + w, v + d, u + 2 * d + w, v + d + h], up: [u + d, v, u + d + w, v + d], down: [u + d + w, v, u + d + 2 * w, v + d] };
+}
+export function parseBB(text) {
+  const j = typeof text === "string" ? JSON.parse(text) : text;
+  if (!j || !Array.isArray(j.elements)) throw new Error("No parece un .bbmodel válido");
+  return j;
+}
+function buildBB(text) {
+  const j = parseBB(text), res = j.resolution || { width: j.texture_width || 16, height: j.texture_height || 16 };
+  const texs = (j.textures || []).map(t => { const im = new Image(); im.src = t.source || ""; return { im, uw: t.uv_width || res.width || 16, vh: t.uv_height || res.height || 16 }; });
+  const chains = new Map();
+  const walk = (nodes, chain) => (nodes || []).forEach(n => {
+    if (typeof n === "string") chains.set(n, chain);
+    else if (n && typeof n === "object") walk(n.children, [{ o: n.origin || [0, 0, 0], r: n.rotation || [0, 0, 0] }, ...chain]);
+  });
+  walk(j.outliner, []);
+  const raw = [];
+  for (const el of j.elements) {
+    if (el.type && el.type !== "cube") continue;
+    const f = el.from || [0, 0, 0], to = el.to || [0, 0, 0], inf = el.inflate || 0;
+    const A = [f[0] - inf, f[1] - inf, f[2] - inf], B = [to[0] + inf, to[1] + inf, to[2] + inf];
+    const uvs = el.box_uv && !el.faces ? boxUv(el, to[0] - f[0], to[1] - f[1], to[2] - f[2]) : null;
+    const C = {                                              // esquinas (arriba-izq, arriba-der, abajo-izq) vistas desde fuera
+      north: [[B[0], B[1], A[2]], [A[0], B[1], A[2]], [B[0], A[1], A[2]]], south: [[A[0], B[1], B[2]], [B[0], B[1], B[2]], [A[0], A[1], B[2]]],
+      east: [[B[0], B[1], B[2]], [B[0], B[1], A[2]], [B[0], A[1], B[2]]], west: [[A[0], B[1], A[2]], [A[0], B[1], B[2]], [A[0], A[1], A[2]]],
+      up: [[A[0], B[1], A[2]], [B[0], B[1], A[2]], [A[0], B[1], B[2]]], down: [[A[0], A[1], B[2]], [B[0], A[1], B[2]], [A[0], A[1], A[2]]]
+    };
+    const chain = chains.get(el.uuid) || [], org = el.origin || [0, 0, 0], rot = el.rotation || [0, 0, 0];
+    const tr = p => { let q = rotPt(p, org, rot); for (const g of chain) q = rotPt(q, g.o, g.r); return q; };
+    const mid = tr([(A[0] + B[0]) / 2, (A[1] + B[1]) / 2, (A[2] + B[2]) / 2]);
+    for (const dir of Object.keys(C)) {
+      const fc = (el.faces && el.faces[dir]) || null, uv = fc ? fc.uv : uvs && uvs[dir];
+      if (!uv || (fc && (fc.texture === null || fc.texture === undefined) && texs.length === 0)) continue;
+      if (fc && fc.texture === null) continue;
+      const tx = texs[fc && Number.isInteger(fc.texture) ? fc.texture : 0]; if (!tx) continue;
+      let q = C[dir].map(tr); q = [q[0], q[1], [q[1][0] + q[2][0] - q[0][0], q[1][1] + q[2][1] - q[0][1], q[1][2] + q[2][2] - q[0][2]], q[2]]; // TL, TR, BR, BL
+      for (let s = 0; s < ((fc && fc.rotation) || 0) / 90; s++) q = [q[3], q[0], q[1], q[2]];
+      raw.push({ q, mid, uv, tx });
+    }
+  }
+  if (!raw.length) return [];
+  let mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+  raw.forEach(r => r.q.forEach(p => p.forEach((a, k) => { if (a < mn[k]) mn[k] = a; if (a > mx[k]) mx[k] = a; })));
+  const ctr = mn.map((a, k) => (a + mx[k]) / 2), size = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) || 1;
+  const T = p => [(p[0] - ctr[0]) / size, -(p[1] - ctr[1]) / size, (p[2] - ctr[2]) / size];
+  return raw.map(r => {
+    const q = r.q.map(T), m = T(r.mid), e1 = [q[1][0] - q[0][0], q[1][1] - q[0][1], q[1][2] - q[0][2]], e2 = [q[3][0] - q[0][0], q[3][1] - q[0][1], q[3][2] - q[0][2]];
+    let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]; const l = Math.hypot(n[0], n[1], n[2]) || 1; n = n.map(a => a / l);
+    const fcn = [(q[0][0] + q[2][0]) / 2 - m[0], (q[0][1] + q[2][1]) / 2 - m[1], (q[0][2] + q[2][2]) / 2 - m[2]];
+    if (n[0] * fcn[0] + n[1] * fcn[1] + n[2] * fcn[2] < 0) n = n.map(a => -a);
+    return { v: [...q[0], ...q[1], ...q[2], ...q[3]], n, c: [150, 150, 160], tex: { t: r.tx, uv: r.uv } };
+  });
+}
+function drawTex(g, dpr, P, f, X, Y, sh) {
+  const { t, uv } = f.tex, im = t.im; if (!im.complete || !im.naturalWidth) return;
+  const sx = im.naturalWidth / t.uw, sy = im.naturalHeight / t.vh, u0 = uv[0] * sx, v0 = uv[1] * sy, u1 = uv[2] * sx, v1 = uv[3] * sy;
+  if (u1 === u0 || v1 === v0) return;
+  const p0 = [X(P[0]), Y(P[0])], p1 = [X(P[1]), Y(P[1])], p3 = [X(P[3]), Y(P[3])];
+  const a = (p1[0] - p0[0]) / (u1 - u0), b = (p1[1] - p0[1]) / (u1 - u0), c = (p3[0] - p0[0]) / (v1 - v0), d = (p3[1] - p0[1]) / (v1 - v0);
+  g.save(); g.beginPath(); P.forEach((p, i) => (i ? g.lineTo(X(p), Y(p)) : g.moveTo(X(p), Y(p)))); g.closePath(); g.clip();
+  g.setTransform(dpr * a, dpr * b, dpr * c, dpr * d, dpr * (p0[0] - a * u0 - c * v0), dpr * (p0[1] - b * u0 - d * v0));
+  g.imageSmoothingEnabled = false;
+  const ux = Math.min(u0, u1), vy = Math.min(v0, v1), uw = Math.abs(u1 - u0), vh = Math.abs(v1 - v0);
+  g.drawImage(im, ux, vy, uw, vh, ux, vy, uw, vh);
+  g.restore();
+  g.fillStyle = `rgba(0,0,0,${(0.55 * (1 - sh)).toFixed(3)})`; g.beginPath(); P.forEach((p, i) => (i ? g.lineTo(X(p), Y(p)) : g.moveTo(X(p), Y(p)))); g.closePath(); g.fill();
+}
+
 export function avgColor(img) {
   try { const { d } = pixelsOf(img); let r = 0, g = 0, b = 0, n = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 40) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; } return n ? [r / n | 0, g / n | 0, b / n | 0] : null; } catch (e) { return null; }
 }
@@ -71,7 +151,8 @@ export function viewer3d(canvas, src = {}) {
   const g = canvas.getContext("2d");
   function set(s) {
     try {
-      if (s && s.obj) faces = buildObj(s.obj, s.color || (s.img && avgColor(s.img)));
+      if (s && s.bb) faces = buildBB(s.bb);
+      else if (s && s.obj) faces = buildObj(s.obj, s.color || (s.img && avgColor(s.img)));
       else if (s && s.img && s.img.width) faces = buildExtrude(s.img);
       else faces = [];
     } catch (e) { faces = []; }
@@ -112,6 +193,7 @@ export function viewer3d(canvas, src = {}) {
     for (const it of list) {
       const sh = 0.45 + 0.55 * Math.max(0, it.nz * 0.7 + (-it.n[1]) * 0.35 + it.n[0] * 0.15);
       const c = it.f.c;
+      if (it.f.tex) { drawTex(g, dpr, it.P, it.f, p => cx + p[0] * S, p => cy + p[1] * S, sh); continue; }
       g.fillStyle = g.strokeStyle = `rgb(${Math.min(255, c[0] * sh) | 0},${Math.min(255, c[1] * sh) | 0},${Math.min(255, c[2] * sh) | 0})`;
       g.lineWidth = 0.7; g.beginPath();
       it.P.forEach((p, i) => { const X = cx + p[0] * S, Y = cy + p[1] * S; i ? g.lineTo(X, Y) : g.moveTo(X, Y); });

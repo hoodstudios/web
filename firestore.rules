@@ -35,9 +35,36 @@ service cloud.firestore {
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['avatar'])
             && avatarOk(request.resource.data.avatar))
           || progressOk()
+          || buyOk()
+          || equipOk()
         );
 
       allow delete: if false;
+    }
+
+    // MERCADO: catálogo. Todos leen; solo el Admin crea, edita, oculta (hidden) o elimina.
+    match /shop/{id} {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['name', 'cat', 'kind', 'price', 'order', 'hidden', 'img', 'w', 'x', 'y', 'c1', 'c2', 'game', 'desc', 'model', 'sc'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
+        && request.resource.data.cat in ['hat', 'profile', 'items', 'pets', 'furn']
+        && request.resource.data.price is int
+        && request.resource.data.price >= 0 && request.resource.data.price <= 1000000
+        && (request.resource.data.get('img', null) == null
+            || (request.resource.data.img is string && request.resource.data.img.size() < 120000
+                && request.resource.data.img.matches('data:image/png;base64,.*')));
+      allow delete: if isAdmin();
+    }
+
+    // Modelos 3D (.bbmodel de Blockbench en texto) de los items de la tienda.
+    match /shop_models/{id} {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['bb'])
+        && request.resource.data.bb is string && request.resource.data.bb.size() < 950000;
+      allow delete: if isAdmin();
     }
 
     // Eventos del Calendario: todos leen, solo el Admin escribe.
@@ -176,6 +203,40 @@ service cloud.firestore {
         && d.get('coinWin_elytra', 0) <= request.time.toMillis() + 60000
         && (sameWinE || d.get('coinWin_elytra', 0) >= r.get('coinWin_elytra', 0) + 86400000)
         && d.get('coins', 0) - r.get('coins', 0) <= dn + dnc + dne;
+    }
+
+    // Compra: se resta exactamente el precio del item (visible en la tienda) y se agrega a inv, nada más.
+    function buyOk() {
+      let d = request.resource.data;
+      let r = resource.data;
+      let old = r.get('inv', []);
+      let id = d.inv[d.inv.size() - 1];
+      let it = get(/databases/$(database)/documents/shop/$(id)).data;
+      return request.auth != null && request.auth.uid == resource.id
+        && d.diff(r).affectedKeys().hasOnly(['coins', 'inv'])
+        && d.inv is list
+        && d.inv.size() == old.size() + 1
+        && d.inv.size() <= 300
+        && d.inv.hasAll(old)
+        && !(id in old)
+        && it.get('hidden', false) != true
+        && it.price is number
+        && d.get('coins', 0) is int
+        && d.get('coins', 0) >= 0
+        && d.get('coins', 0) == r.get('coins', 0) - it.price;
+    }
+
+    // Equipar: solo cosas que ya compraste (o null para quitar).
+    function equipOk() {
+      let d = request.resource.data;
+      let inv = d.get('inv', []);
+      return request.auth != null && request.auth.uid == resource.id
+        && d.diff(resource.data).affectedKeys().hasOnly(['equip'])
+        && d.equip is map
+        && d.equip.keys().hasOnly(['hat', 'frame', 'bg'])
+        && (!('hat' in d.equip) || d.equip.hat == null || d.equip.hat in inv)
+        && (!('frame' in d.equip) || d.equip.frame == null || d.equip.frame in inv)
+        && (!('bg' in d.equip) || d.equip.bg == null || d.equip.bg in inv);
     }
 
     function validScore(uid) {
