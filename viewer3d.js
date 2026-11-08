@@ -147,7 +147,7 @@ export function viewer3d(canvas, src = {}) {
     if (!cw || !ch) return;
     const OW = Math.round(cw * dpr), OH = Math.round(ch * dpr);
     if (canvas.width !== OW || canvas.height !== OH) { canvas.width = OW; canvas.height = OH; }
-    const ss = Math.min(1.6, 560 / Math.max(OW, OH)), W = Math.max(8, Math.round(OW * ss)), H = Math.max(8, Math.round(OH * ss));   // se dibuja un poco más grande y se reduce: bordes suaves
+    const ss = Math.min(1.6, (src.max || 560) / Math.max(OW, OH)), W = Math.max(8, Math.round(OW * ss)), H = Math.max(8, Math.round(OH * ss));   // se dibuja un poco más grande y se reduce: bordes suaves
     if (W !== RW || H !== RH) { RW = W; RH = H; off.width = W; off.height = H; buf = og.createImageData(W, H); depth = new Float32Array(W * H); }
     const px = buf.data; px.fill(0); depth.fill(-1e9);
     const tm = (now - t0) / 1000, S = Math.min(W, H) * 0.46 / rad, cx = W / 2, cy = H / 2;

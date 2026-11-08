@@ -24,7 +24,7 @@ const auth = getAuth(app), db = getFirestore(app);
 
 import { createAvatar, createFigureSet, loadSkin, ANIMS } from "./avatar.js";
 import { Mercado } from "./mercado.js";
-import { createCofres } from "./cofres.js";
+import { Cofres } from "./cofres.js";
 
 (() => {
 "use strict";
@@ -120,6 +120,7 @@ function route() {
   window.scrollTo(0, 0); if (cur === "inicio") fitSub();
 }
 addEventListener("hashchange", route);
+Cofres.init({ db, auth, esc, me, fb: { doc, getDoc, setDoc, updateDoc, increment, arrayUnion }, lvl: xp => xpInfo(xp).lvl, link: pLink, refresh: () => renderAuth() });
 Mercado.init({
   db, auth, esc, me,
   fb: { doc, getDoc, setDoc, updateDoc, getDocs, collection, deleteDoc, increment, arrayUnion },
@@ -133,8 +134,6 @@ Mercado.init({
     renderAuth(); if (hashParts()[0] === "perfil") route();
   }
 });
-const Cofres = createCofres({ me, xpInfo, db, doc, getDoc, setDoc, updateDoc, increment, Mercado, refreshAuth: () => renderAuth() });
-
 
 /* ---------- Galería del inicio (ruleta) ---------- */
 /* Todas las imágenes de la carpeta "galeria/" aparecen solas aquí. Para obtener la lista:
@@ -267,8 +266,9 @@ async function loadProfile(user) {
   if (!user) return;
   try {
     const s = await getDoc(doc(db, "players", user.uid));
-    if (s.exists()) { const d = s.data(); profile = { uid: user.uid, name: d.name, avatar: okAv(d.avatar), medalIds: Array.isArray(d.medalIds) ? d.medalIds : [], chestsOpened: Math.floor(Number(d.chestsOpened)) || 0, xp: Math.floor(Number(d.xp)) || 0, coins: Number(d.coins ?? d.monedas) || 0, inv: Array.isArray(d.inv) ? d.inv : [], equip: d.equip && typeof d.equip === "object" ? d.equip : {} }; }
+    if (s.exists()) { const d = s.data(); profile = { uid: user.uid, name: d.name, avatar: okAv(d.avatar), medalIds: Array.isArray(d.medalIds) ? d.medalIds : [], xp: Math.floor(Number(d.xp)) || 0, coins: Number(d.coins ?? d.monedas) || 0, inv: Array.isArray(d.inv) ? d.inv : [], equip: d.equip && typeof d.equip === "object" ? d.equip : {}, chests: Math.max(0, Math.floor(Number(d.chests)) || 0), lvChest: Number.isFinite(Number(d.lvChest)) && d.lvChest !== null ? Math.floor(Number(d.lvChest)) : null }; }
   } catch (e) { console.warn(e); }
+  if (profile) setTimeout(() => Cofres.sync(profile), 400);
 }
 async function signUp(name, pw, prem, file) {
   let avatar = DEF, skinData = null, slim = false;
@@ -281,7 +281,7 @@ async function signUp(name, pw, prem, file) {
     try { await setDoc(doc(db, "players", cred.user.uid), { name, avatar, medalIds: [], createdAt: serverTimestamp() }); }
     catch (e) { try { await deleteUser(cred.user); } catch (_) {} return fe(e); }
     try { await setDoc(doc(db, "avatars", cred.user.uid), { skin: skinData, slim }); } catch (e) { console.warn(e); }
-    profile = { uid: cred.user.uid, name, avatar, medalIds: [], xp: 0, coins: 0, inv: [], equip: {}, chestsOpened: 0 };
+    profile = { uid: cred.user.uid, name, avatar, medalIds: [], xp: 0, coins: 0, inv: [], equip: {} };
     return null;
   } finally { signing = false; }
 }
@@ -341,8 +341,7 @@ function renderAuth() {
   if (u) {
     const d = document.createElement("a"); d.className = "me"; d.href = pLink(u.name); d.title = "Mi perfil";
     d.innerHTML = `<img src="${esc(u.avatar)}" alt="Mi perfil">`;
-    box.append(d); Mercado.decorate({ equip: u.equip, frameEls: [d.querySelector("img")] });
-    if (typeof Cofres !== "undefined") Cofres.updateDot();
+    box.append(d); Mercado.decorate({ equip: u.equip, frameEls: [d.querySelector("img")] }); Cofres.badge(box, u);
   } else box.append(mk("Iniciar sesión", "btn", () => openM("login")), mk("Registrarse", "btn solid", () => openM("signup")));
 }
 
@@ -415,9 +414,23 @@ function drawTrim(cv, fig) {                                 // recorta el hueco
   } catch (e) { const pt = fig.padT || 0, pb = fig.padB || 0; y = pt; h = fig.height - pt - pb; }
   cv.width = w; cv.height = h; const g = cv.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(fig, x, y, w, h, 0, 0, w, h);
 }
+const enchCv = new Set(); let enchT = 0;
+function enchTick() {                                          // sombreros encantados en tablas: redibuja el brillo mientras estén en pantalla
+  for (const cv of enchCv) {
+    if (!cv.isConnected) { enchCv.delete(cv); continue; }
+    const r = cv.getBoundingClientRect(); if (r.bottom < 0 || r.top > innerHeight) continue;
+    try { drawTrim(cv, cv._set.get("idle", 0).fig); } catch (e) { enchCv.delete(cv); }
+  }
+  if (!enchCv.size) { clearInterval(enchT); enchT = 0; }
+}
 async function paintFig(cv) {
   const { uid, name, avatar } = cv.dataset, f = await figsFor(uid, name, avatar);
-  if (f) { try { const cos = await Mercado.hatCos(f.hat); drawTrim(cv, createFigureSet(f.img, { slim: f.slim, k: 3, cos }).get("idle", 0).fig); cv.classList.add("ready"); return; } catch (e) { console.warn(e); } }
+  if (f) { try {
+    const cos = await Mercado.hatCos(f.hat), set = createFigureSet(f.img, { slim: f.slim, k: 3, cos });
+    drawTrim(cv, set.get("idle", 0).fig); cv.classList.add("ready");
+    if (set.ench) { cv._set = set; enchCv.add(cv); if (!enchT) enchT = setInterval(enchTick, 90); }
+    return;
+  } catch (e) { console.warn(e); } }
   const im = new Image(); im.onload = () => { cv.width = im.width; cv.height = im.height; cv.getContext("2d").drawImage(im, 0, 0); cv.classList.add("ready"); }; im.src = okAv(avatar);
 }
 const figIO = "IntersectionObserver" in window ? new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { figIO.unobserve(e.target); paintFig(e.target); } }), { rootMargin: "300px" }) : null;
@@ -571,7 +584,7 @@ async function renderProfile(name) {
     if (tok !== profTok) return;
     stopAvatar();
     const ids = Array.isArray(p.medalIds) ? p.medalIds : [], xpT = xpOf(p), xi = xpInfo(xpT);
-    box.innerHTML = `
+    box.innerHTML = `<div class="pwrap"><aside class="chestrail" id="chestrail"></aside><div class="pmain">
       <div class="card prof">
         <img class="pface" id="pface" src="${esc(okAv(p.avatar))}" alt="Cabeza de ${esc(p.name)}">
         <div class="pinfo">
@@ -587,7 +600,6 @@ async function renderProfile(name) {
           </form>` : ""}
         </div>
       </div>
-      ${mine ? `<div id="chestside"></div>` : ""}
       <div class="card lvcard"><div class="lvbig"><small>Nivel</small><b>${xi.lvl}</b></div>
         <div class="lvmain"><div class="xbar big"><u data-w="${(xi.pct * 100).toFixed(1)}"></u></div>
           <p class="muted">${nf(xi.cur)} / ${nf(xi.need)} XP para el nivel ${xi.lvl + 1} · ${nf(xpT)} XP en total</p></div></div>
@@ -613,8 +625,9 @@ async function renderProfile(name) {
         </form>
       </div>` : ""}
       <h3 class="sec">Récords</h3>
-      <div class="records">${recs.map(([g, v]) => `<div class="card rec"><h4>${esc(g.name)}</h4>${v === null ? `<span class="muted">Sin récord aún</span>` : `<div class="big">${v} <small>${esc(g.unit)}</small></div>`}</div>`).join("")}</div>`;
+      <div class="records">${recs.map(([g, v]) => `<div class="card rec"><h4>${esc(g.name)}</h4>${v === null ? `<span class="muted">Sin récord aún</span>` : `<div class="big">${v} <small>${esc(g.unit)}</small></div>`}</div>`).join("")}</div></div></div>`;
     lvAnim(box);
+    Cofres.rail($("#chestrail"), { mine, count: mine ? (me().chests || 0) : Math.floor(Number(p.chests)) || 0, name: p.name }); if (mine) Cofres.seen(me());
     const mw = $("#medals");
     ids.forEach(id => {
       const m = MEDALS[id] || { name: String(id), desc: "", img: "" };
@@ -628,7 +641,6 @@ async function renderProfile(name) {
     const pe = p.equip && typeof p.equip === "object" ? p.equip : {}, pinv = Array.isArray(p.inv) ? p.inv : [];
     Mercado.decorate({ equip: pe, frameEls: [$("#pface")], bgEl: box });
     Mercado.inventory($("#invbox"), { inv: pinv, equip: pe, mine, name: p.name });
-    if (mine) { Cofres.mount($("#chestside")); Cofres.markSeen(); }
     const pcos = await Mercado.hatCos(pe.hat);
     if (tok !== profTok) return;
     avatarFx = createAvatar($("#acv"), { skinSources: skinSources(p.name, p.avatar, md), slim: !!(md && md.slim), name: p.name, cos: pcos });
@@ -723,8 +735,8 @@ async function saveScore(score, g = WORLDS[0].game) {
 const Mine = (() => {
   const box = $("#rk-me"); let set = null, crop = null, raf = 0, cv = null, tok = 0, last = -1, shown = "";
   const loop = t => {
-    if (cv && set) { const i = Math.floor(t / 1000 * ANIMS.idle.fps) % ANIMS.idle.frames.length;
-      if (i !== last) { last = i; const { fig } = set.get("idle", i), [cx, cy, cw, ch] = crop || [0, 0, fig.width, fig.height]; cv.width = cw; cv.height = ch; const g = cv.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(fig, cx, cy, cw, ch, 0, 0, cw, ch); } }
+    if (cv && set) { const i = Math.floor(t / 1000 * ANIMS.idle.fps) % ANIMS.idle.frames.length, key = i * 100 + (set.ench ? Math.floor(Date.now() / 85) % 14 : 0);
+      if (key !== last) { last = key; const { fig } = set.get("idle", i), [cx, cy, cw, ch] = crop || [0, 0, fig.width, fig.height]; cv.width = cw; cv.height = ch; const g = cv.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(fig, cx, cy, cw, ch, 0, 0, cw, ch); } }
     raf = requestAnimationFrame(loop);
   };
   async function load(u) {
@@ -962,7 +974,7 @@ const Game = (() => {
     if (!s) return; const xp = s.pxp, cn = s.pcn; s.pxp = 0; s.pcn = 0; const u = me(); if (!u || (!xp && !cn)) return;
     u.xp = (u.xp || 0) + xp; u.coins = (u.coins || 0) + cn;
     const data = { xp: increment(xp) }; if (cn) Object.assign(data, { coins: increment(cn), coinWin_runner: cs.win, coinN_runner: cs.n });   // la ventana de monedas solo se envía si hubo monedas
-    try { await updateDoc(doc(db, "players", u.uid), data); Arcade.refresh(); }
+    try { await updateDoc(doc(db, "players", u.uid), data); Arcade.refresh(); Cofres.sync(u); }
     catch (e) { u.xp -= xp; u.coins -= cn; console.warn("No se pudo guardar XP/monedas:", e); Mine.note(`No se pudo guardar tu XP/monedas${e && e.code ? " (" + e.code + ")" : ""}.`); }
   }
   async function loadBest() {                                 // tu récord anterior: con él se decide el color dorado y el aviso de nuevo récord
@@ -1352,7 +1364,7 @@ const Coral = (() => {
     if (!s) return; const xp = s.pxp, cn = s.pcn; s.pxp = 0; s.pcn = 0; const u = me(); if (!u || (!xp && !cn)) return;
     u.xp = (u.xp || 0) + xp; u.coins = (u.coins || 0) + cn;
     const data = { xp: increment(xp) }; if (cn) Object.assign(data, { coins: increment(cn), coinWin_coral: cs.win, coinN_coral: cs.n });
-    try { await updateDoc(doc(db, "players", u.uid), data); Arcade.refresh(); }
+    try { await updateDoc(doc(db, "players", u.uid), data); Arcade.refresh(); Cofres.sync(u); }
     catch (e) { u.xp -= xp; u.coins -= cn; console.warn("No se pudo guardar XP/monedas:", e); Mine.note(`No se pudo guardar tu XP/monedas${e && e.code ? " (" + e.code + ")" : ""}.`); }
   }
   async function loadBest() {
@@ -1958,7 +1970,7 @@ const Elytra = (() => {
     if (!s) return; const xp = s.pxp, cn = s.pcn; s.pxp = 0; s.pcn = 0; const u = me(); if (!u || (!xp && !cn)) return;
     u.xp = (u.xp || 0) + xp; u.coins = (u.coins || 0) + cn;
     const data = { xp: increment(xp) }; if (cn) Object.assign(data, { coins: increment(cn), coinWin_elytra: cs.win, coinN_elytra: cs.n });
-    try { await updateDoc(doc(db, "players", u.uid), data); Arcade.refresh(); }
+    try { await updateDoc(doc(db, "players", u.uid), data); Arcade.refresh(); Cofres.sync(u); }
     catch (e) { u.xp -= xp; u.coins -= cn; console.warn("No se pudo guardar XP/monedas:", e); Mine.note(`No se pudo guardar tu XP/monedas${e && e.code ? " (" + e.code + ")" : ""}.`); }
   }
   async function loadBest() {

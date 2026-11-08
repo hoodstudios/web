@@ -40,6 +40,17 @@ function buildFigure(img, o, k) {
   const strips = (sx, sy, w, x, y, dw, n, mirror) => flip(x, dw, mirror, () => {    // 12 filas de skin -> n filas
     for (let i = 0; i < n; i++) c.drawImage(img, sx * f, (sy + Math.round(i * 11 / (n - 1))) * f, w * f, f, X(x), (y + i) * k, Math.round(dw * k), k);
   });
+  const drawHat = () => {
+    const cs = o.cos;                                            // sombrero (o cualquier cosmético de cabeza): sigue la pose de la cabeza
+    if (cs && cs.img && cs.img.width) {
+      const hw = Math.round(cs.w * k), hh = Math.round(hw * cs.img.height / cs.img.width), hx = X(8 + (cs.x || 0)) - Math.round(hw / 2), hy = Math.round((cs.y ?? 4) * k) - hh;
+      part("h", () => {
+        if (E > 0 && cs.dark) for (let i = 4; i >= 1; i--) c.drawImage(cs.dark, hx + Math.round(E * k * i / 4), hy, hw, hh);
+        c.drawImage(cs.img, hx, hy, hw, hh);
+      });
+    }
+  };
+  if (o.hatOnly) { drawHat(); fig.headX = ox * k; return fig; }
   if (E > 0) {                                                  // 1) caras laterales (detrás de las frontales)
     const side = (u, ov, x, y, n, w = E) => {
       strips(u[0], u[1], 4, x, y, w, n);
@@ -87,14 +98,7 @@ function buildFigure(img, o, k) {
     });
     if (full && P.front) arms();
   });
-  const cs = o.cos;                                              // 3) sombrero (o cualquier cosmético de cabeza): sigue la pose de la cabeza
-  if (cs && cs.img && cs.img.width) {
-    const hw = Math.round(cs.w * k), hh = Math.round(hw * cs.img.height / cs.img.width), hx = X(8 + (cs.x || 0)) - Math.round(hw / 2), hy = Math.round((cs.y ?? 4) * k) - hh;
-    part("h", () => {
-      if (E > 0 && cs.dark) for (let i = 4; i >= 1; i--) c.drawImage(cs.dark, hx + Math.round(E * k * i / 4), hy, hw, hh);   // grosor: copias oscuras hacia el lado
-      c.drawImage(cs.img, hx, hy, hw, hh);
-    });
-  }
+  if (!o.hatOnly) drawHat();
   fig.headX = ox * k;
   return fig;
 }
@@ -152,17 +156,34 @@ export function createFigureSet(img, { slim = false, k = 3, cos = null } = {}) {
       const hh = w * cos.img.height / cos.img.width; PT = Math.max(2, Math.min(40, Math.ceil(hh - y) + 3));
       const d = document.createElement("canvas"); d.width = cos.img.width; d.height = cos.img.height; const g = d.getContext("2d");
       g.drawImage(cos.img, 0, 0); g.globalCompositeOperation = "source-atop"; g.fillStyle = "rgba(0,0,0,.5)"; g.fillRect(0, 0, d.width, d.height);
-      hat = { img: cos.img, dark: d, w, x, y };
+      hat = { img: cos.img, dark: d, w, x, y, ench: !!cos.ench };
     }
   } catch (e) { hat = null; PT = 2; }
   const base = { style: "drop", depth: 50, arms: slim ? "slim" : "auto", hat: true, PT, cos: hat };
-  const cache = new Map();
+  const cache = new Map(), masks = new Map(), glints = new Map();
+  const GP = 14, phase = () => Math.floor(Date.now() / 85) % GP;
+  function glint(fig, key, pose) {                               // sombrero encantado: banda violeta que recorre el sombrero + tinte suave
+    const ph = phase(), gk = key + "@" + ph; let out = glints.get(gk); if (out) return out;
+    let m = masks.get(key); if (!m) { m = buildFigure(img, M(base, { pose, hatOnly: true }), k); masks.set(key, m); }
+    const w = fig.width, h = fig.height, ov = document.createElement("canvas"); ov.width = w; ov.height = h;
+    const g = ov.getContext("2d"); g.drawImage(m, 0, 0); g.globalCompositeOperation = "source-atop";
+    g.fillStyle = "rgba(150,70,255,.20)"; g.fillRect(0, 0, w, h);
+    const t = (ph / GP) * (w + h) * 1.4 - h * .2, band = Math.max(8, w * .22);
+    const gr = g.createLinearGradient(t - band, 0, t + band, h * .9);
+    gr.addColorStop(0, "rgba(190,120,255,0)"); gr.addColorStop(.5, "rgba(235,200,255,.85)"); gr.addColorStop(1, "rgba(190,120,255,0)");
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    out = document.createElement("canvas"); out.width = w; out.height = h; out.padT = fig.padT; out.padB = fig.padB; out.headX = fig.headX;
+    const o2 = out.getContext("2d"); o2.drawImage(fig, 0, 0); o2.globalCompositeOperation = "lighter"; o2.drawImage(ov, 0, 0);
+    glints.set(gk, out); return out;
+  }
   return {
+    ench: !!(hat && hat.ench),
     k, w: 32 * k, feet: (23 + PT) * k,                                  // ancho del lienzo y fila (px) donde apoyan los pies
     get(anim, i = 0) {
       const a = ANIMS[anim], n = a ? a.frames.length : 1, j = ((i % n) + n) % n, key = anim + ":" + j, pose = a ? a.frames[j] : {};
       let fig = cache.get(key);
       if (!fig) { fig = buildFigure(img, M(base, { pose }), k); cache.set(key, fig); }
+      if (hat && hat.ench) fig = glint(fig, key, pose);
       return { fig, gx: (pose.gx || 0) * k, gy: (pose.gy || 0) * k };
     }
   };

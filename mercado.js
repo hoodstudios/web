@@ -31,7 +31,7 @@ const isAdmin = () => { const u = D && D.auth.currentUser; return !!(u && (u.ema
 const byOrder = (a, b) => (a.order - b.order) || a.name.localeCompare(b.name);
 function norm(id, d) {
   return { id, name: String(d.name || "Sin nombre"), cat: String(d.cat || "items"), kind: d.kind || "", price: Math.max(0, Math.floor(Number(d.price) || 0)), order: Number(d.order) || 0, hidden: d.hidden === true,
-    img: typeof d.img === "string" ? d.img : "", w: Number(d.w) || 16, x: Number(d.x) || 0, y: Number.isFinite(Number(d.y)) ? Number(d.y) : 1, c1: d.c1 || "#888888", c2: d.c2 || "#444444", game: d.game || "end", desc: d.desc || "", model: d.model === true, ench: d.ench === true };
+    img: typeof d.img === "string" ? d.img : "", w: Number(d.w) || 16, x: Number(d.x) || 0, y: Number.isFinite(Number(d.y)) ? Number(d.y) : 1, c1: d.c1 || "#888888", c2: d.c2 || "#444444", game: d.game || "end", desc: d.desc || "", model: d.model === true, ench: d.ench === true, chestOnly: d.chestOnly === true };
 }
 export function loadShop(force) {
   if (!force && shopP) return shopP;
@@ -43,7 +43,6 @@ export function loadShop(force) {
   return shopP;
 }
 export const itemOf = id => shop.get(id) || null;
-export const shopList = () => [...shop.values()];
 function imgOf(it) {
   if (!it || !it.img) return Promise.resolve(null);
   const k = it.id + "|" + it.img.length;
@@ -51,13 +50,6 @@ function imgOf(it) {
   return imgCache.get(k);
 }
 /* Sombrero listo para dibujar: { img, w, x, y } o null (si no existe, se eliminó o falla, el avatar sale sin sombrero) */
-function glint(img) {                                         // brillo morado de objeto encantado, solo sobre los píxeles del sombrero
-  const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const g = c.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(img, 0, 0);
-  g.globalCompositeOperation = "source-atop"; const gr = g.createLinearGradient(0, 0, c.width, c.height);
-  [[0, ".42"], [.3, ".6"], [.5, ".4"], [.75, ".58"], [1, ".4"]].forEach(([p, a], i) => gr.addColorStop(p, i % 2 ? `rgba(228,170,255,${a})` : `rgba(130,40,235,${a})`)); g.fillStyle = gr; g.fillRect(0, 0, c.width, c.height);
-  g.fillStyle = "rgba(255,255,255,.28)"; const st = Math.max(3, Math.round(c.width / 5)); for (let x = -c.height; x < c.width; x += st * 2) { g.beginPath(); g.moveTo(x, c.height); g.lineTo(x + st * .5, c.height); g.lineTo(x + c.height + st * .5, 0); g.lineTo(x + c.height, 0); g.fill(); }
-  return c;
-}
 export async function hatCos(id) {
   if (!id) return null;
   try {
@@ -65,7 +57,7 @@ export async function hatCos(id) {
     const it = shop.get(id);
     if (!it || it.cat !== "hat") return null;
     const img = await imgOf(it);
-    return img ? { img: it.ench ? glint(img) : img, w: it.w, x: it.x, y: it.y } : null;
+    return img ? { img, w: it.w, x: it.x, y: it.y, ench: !!it.ench } : null;
   } catch (e) { return null; }
 }
 async function modelOf(id) {
@@ -173,21 +165,31 @@ function buildCarousel() {
     </div>
     <div class="mk-view" id="mk-bv" hidden></div>`;
   const track = q("#mk-track"), books = [...track.querySelectorAll(".mk-bk")];
-  books.forEach(b => (b._o = 99));
-  const layout = (anim, dir = 1) => {
-    const W = track.clientWidth || 600, N = CATS.length;
-    root.style.setProperty("--bk", CATS[cur].col);
+  let pos = 0, tp = 0, raf = 0, vel = 0, lastT = 0;
+  const N = CATS.length;
+  const render = () => {                                        // carrusel elíptico: cada libro gira alrededor de una elipse (delante = grande, detrás = pequeño y alto)
+    const W = track.clientWidth || 600, H = track.clientHeight || 300, sm = W < 520, rx = W * (sm ? .36 : .34), ry = Math.min(H * .1, sm ? 22 : 34);
     books.forEach((b, i) => {
-      let o = ((i - cur) % N + N) % N; if (o > N / 2) o -= N;
-      const sm = W < 520, a = Math.abs(o), s = (sm ? [1, .5, .3] : [1, .6, .38])[a] || .3, dx = (sm ? [0, .34, .5] : [0, .3, .43])[a] * W * Math.sign(o), op = [1, .92, .55][a] ?? .5;
-      const jump = b._o !== 99 && Math.abs(o - b._o) > 2;
-      if (jump) { b.style.transition = "none"; b.style.opacity = "0"; }
-      b.style.transform = `translate(calc(-50% + ${dx}px), -50%) scale(${s})`; b.style.zIndex = 10 - a;
-      b.classList.toggle("c", o === 0); b.classList.toggle("off", !CATS[i].on);
-      b.style.filter = a ? `brightness(${a === 1 ? .78 : .55})` + (CATS[i].on ? "" : " saturate(.5)") : CATS[i].on ? "" : "saturate(.55) brightness(.9)";
-      if (jump) { void b.offsetWidth; b.style.transition = ""; }
-      b.style.opacity = op; b._o = o;
+      let o = (i - pos) % N; if (o > N / 2) o -= N; if (o < -N / 2) o += N;
+      const th = o * 2 * Math.PI / N, z = Math.cos(th), t = (z + 1) / 2;       // t: 1 delante, 0 detrás
+      const sc = (sm ? .3 : .34) + (1 - (sm ? .3 : .34)) * Math.pow(t, 1.15), dx = Math.sin(th) * rx, dy = -(1 - z) * ry;
+      b.style.transform = `translate(calc(-50% + ${dx.toFixed(1)}px), calc(-50% + ${dy.toFixed(1)}px)) scale(${sc.toFixed(3)})`;
+      b.style.zIndex = Math.round(t * 20); b.style.opacity = (.35 + .65 * Math.pow(t, .8)).toFixed(2);
+      const br = .45 + .55 * t; b.style.filter = `brightness(${br.toFixed(2)})` + (CATS[i].on ? "" : " saturate(.55)");
+      b.classList.toggle("c", Math.abs(o) < .5); b.classList.toggle("off", !CATS[i].on);
     });
+  };
+  const tick = now => {
+    const dt = Math.min(.05, (now - lastT) / 1000 || .016); lastT = now;
+    const k = 60, c = 2 * Math.sqrt(k) * .86, a = k * (tp - pos) - c * vel;       // muelle amortiguado: arranca suave, pasa un pelín y asienta
+    vel += a * dt; pos += vel * dt; render();
+    if (Math.abs(tp - pos) > .0008 || Math.abs(vel) > .004) raf = requestAnimationFrame(tick); else { pos = tp; vel = 0; raf = 0; render(); }
+  };
+  const kick = () => { if (!raf) { lastT = performance.now(); raf = requestAnimationFrame(tick); } };
+  const layout = (anim, dir = 1) => {
+    const W = track.clientWidth || 600;
+    root.style.setProperty("--bk", CATS[cur].col);
+    if (!anim) { if (!raf) { tp = pos = cur + Math.round((pos - cur) / N) * N; } render(); }
     const cap = q(".mk-cap");
     if (anim) {
       cap.style.setProperty("--dir", dir); cap.classList.remove("swap"); void cap.offsetWidth; cap.classList.add("swap");
@@ -203,7 +205,7 @@ function buildCarousel() {
     q("#mk-ct").textContent = CATS[cur].on ? CATS[cur].tip : "Próximamente";
     const ob = q("#mk-open"); ob.disabled = !CATS[cur].on; ob.textContent = CATS[cur].on ? "Abrir" : "Próximamente";
   };
-  const go = d => { cur = ((cur + d) % CATS.length + CATS.length) % CATS.length; layout(true, Math.sign(d) || 1); };
+  const go = d => { tp += d; cur = ((cur + d) % CATS.length + CATS.length) % CATS.length; layout(true, Math.sign(d) || 1); kick(); };
   const open = () => { if (CATS[cur].on) openBook(CATS[cur].id); };
   q(".mk-ar.l").onclick = () => go(-1); q(".mk-ar.r").onclick = () => go(1); q("#mk-open").onclick = open;
   let drag = null, moved = false, lockW = 0;
@@ -214,7 +216,7 @@ function buildCarousel() {
     const i = +b.dataset.i; if (i === cur) open(); else { const N = CATS.length; let o = ((i - cur) % N + N) % N; if (o > N / 2) o -= N; go(o); }
   });
   q(".mk-car").addEventListener("wheel", e => { if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) || Date.now() < lockW) return; e.preventDefault(); lockW = Date.now() + 380; go(e.deltaX > 0 ? 1 : -1); }, { passive: false });
-  root._layout = () => layout(); layout(); setTimeout(layout, 60);
+  root._layout = () => layout(); layout(); setTimeout(layout, 60); root._stopCar = () => { cancelAnimationFrame(raf); raf = 0; };
   root._go = go; root._open = open;
 }
 
@@ -222,7 +224,7 @@ function buildCarousel() {
 function items() {
   const cat = openCat;
   let l = [...shop.values()].filter(i => i.cat === cat).sort(byOrder);
-  if (!adminOn) l = l.filter(i => !i.hidden);
+  if (!adminOn) l = l.filter(i => !i.hidden && !i.chestOnly);
   if (cat === "profile") l = l.filter(i => (tab === "bg") === (i.kind.startsWith("bg")));
   return l;
 }
@@ -280,7 +282,7 @@ function renderBook() {
   slice.forEach(it => {
     const c = document.createElement("div"); c.className = "mk-card" + (it.ench ? " ench" : "") + (it.id === sel ? " sel" : "") + (owned(it.id) ? " own" : "") + (it.hidden ? " hid" : "");
     c.tabIndex = 0; c.dataset.id = it.id;
-    c.innerHTML = `<div class="mk-tw">${thumb(it)}</div><span class="mk-cn">${esc(it.name)}</span>${owned(it.id) ? `<span class="mk-have">${worn(it) ? "PUESTO" : "COMPRADO"}</span>` : price(it.price)}${it.hidden ? `<span class="mk-badge">OCULTO</span>` : ""}`
+    c.innerHTML = `<div class="mk-tw">${thumb(it)}</div><span class="mk-cn">${esc(it.name)}</span>${owned(it.id) ? `<span class="mk-have">${worn(it) ? "PUESTO" : "COMPRADO"}</span>` : price(it.price)}${it.chestOnly ? `<span class="mk-badge cf">COFRE</span>` : ""}${it.hidden ? `<span class="mk-badge">OCULTO</span>` : ""}`
       + (adminOn ? `<div class="mk-ad"><button type="button" data-a="l" title="Mover antes">◀</button><button type="button" data-a="r" title="Mover después">▶</button><button type="button" data-a="e" title="Editar">✎</button><button type="button" data-a="h" title="${it.hidden ? "Mostrar al público" : "Ocultar al público"}">${it.hidden ? "◌" : "●"}</button><button type="button" data-a="d" title="Eliminar">🗑</button></div>` : "");
     c.onclick = e => {
       const b = e.target.closest(".mk-ad button"); if (b) { e.stopPropagation(); return adminAct(b.dataset.a, it); }
@@ -422,6 +424,7 @@ function editItem(it) {
       <label data-f="model">Modelo 3D (.bbmodel de Blockbench, opcional)<input name="obj" type="file" accept=".bbmodel,.json,application/json"></label>
       <label class="chk" data-f="rmmodel" hidden><input name="rmobj" type="checkbox"> Quitar el modelo 3D actual</label>
       <label class="chk" data-f="ench"><input name="ench" type="checkbox" ${base.ench ? "checked" : ""}> ✦ Encantado (brillo morado)</label>
+      <label class="chk"><input name="chestOnly" type="checkbox" ${base.chestOnly ? "checked" : ""}> 🎁 Exclusivo del Cofre de End (no se vende en la tienda)</label>
       <label class="chk"><input name="hidden" type="checkbox" ${base.hidden ? "checked" : ""}> Oculto al público (quien ya lo compró lo sigue usando)</label>
       <p class="err" id="mk-ferr" role="alert"></p>
       <div class="mk-fbtn"><button class="btn" type="button" data-c>Cancelar</button><button class="btn solid" type="submit">Guardar</button></div>
@@ -442,9 +445,9 @@ function editItem(it) {
     if (cat !== "hat") return;
     if (!fap) fap = avatarPreview($f("[data-f=hatprev] canvas"));
     const i = img ? await new Promise(r => { const e = new Image(); e.onload = () => r(e); e.onerror = () => r(null); e.src = img; }) : null;
-    fap.setCos(i ? { img: i, w: +f.w.value || 16, x: +f.x.value || 0, y: +f.y.value } : null);
+    fap.setCos(i ? { img: i, w: +f.w.value || 16, x: +f.x.value || 0, y: +f.y.value, ench: f.ench.checked } : null);
   };
-  if (cat === "hat") { ["w", "x", "y"].forEach(n => f[n].oninput = updPrev); updPrev(); }
+  if (cat === "hat") { ["w", "x", "y"].forEach(n => f[n].oninput = updPrev); f.ench.onchange = updPrev; updPrev(); }
   f.img.onchange = async () => { ferr.textContent = ""; const fl = f.img.files[0]; if (!fl) return; try { img = await readImg(fl, cat === "hat" ? 64 : cat === "profile" ? 480 : 128); updPrev(); } catch (e) { ferr.textContent = e.message; f.img.value = ""; } };
   f.obj.onchange = async () => {
     ferr.textContent = ""; const fl = f.obj.files[0]; if (!fl) return;
@@ -468,6 +471,7 @@ function editItem(it) {
     if (kind === "bg-game") data.game = f.game.value;
     if (cat === "hat") { data.w = Math.max(6, Math.min(26, Number(f.w.value) || 16)); data.y = Number(f.y.value) || 0; data.x = Number(f.x.value) || 0; }
     if (cat === "items" || cat === "hat") data.ench = f.ench.checked;
+    data.chestOnly = f.chestOnly.checked;
     if (cat === "items") data.model = !!(obj || (base.model && !f.rmobj.checked));
     const id = it ? it.id : "i" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), fb = D.fb;
     const sb = f.querySelector("[type=submit]"); sb.disabled = true;
@@ -548,29 +552,58 @@ export async function inventory(host, { inv = [], equip: eq = {}, mine = false, 
   const order = { items: 0, hat: 1, profile: 2 }, wornOf = it => (it.cat === "hat" && eq.hat === it.id) || (it.cat === "profile" && (eq.bg === it.id || eq.frame === it.id));
   list.sort((a, b) => (order[a.cat] ?? 9) - (order[b.cat] ?? 9) || byOrder(a, b));
   host.innerHTML = `<div class="mk-inv">${list.map(it => `<button class="mk-slot${wornOf(it) ? " worn" : ""}" type="button" data-id="${esc(it.id)}" title="${esc(it.name)}"><span class="mk-tw">${thumb(it)}</span><b>${esc(it.name)}</b></button>`).join("")}</div>`;
-  host.onclick = e => { const b = e.target.closest(".mk-slot"); if (b) viewItem(shop.get(b.dataset.id), mine, host, { inv, equip: eq, mine, name }, list); };
+  host.onclick = e => { const b = e.target.closest(".mk-slot"); if (b) inspect(list, list.findIndex(x => x.id === b.dataset.id), mine, host, { inv, equip: eq, mine, name }); };
 }
-async function viewItem(it, mine, host, st, list = []) {
-  if (!it) return;
-  const u = D.me(), eq = (mine && u && u.equip) || st.equip || {}, on = wearable(it) && ((it.cat === "hat" && eq.hat === it.id) || (it.cat === "profile" && (eq.bg === it.id || eq.frame === it.id)));
-  const m = modal(`<h3>${esc(it.name)}</h3><div class="mk-vstage"><canvas class="mk-3d"></canvas></div><p class="mk-desc">${esc(it.desc || "")}</p><small class="mk-tip">Arrastra para girarlo</small>
-    ${mine && wearable(it) ? `<button class="mk-buy alt" type="button" id="mk-eq">${on ? "QUITAR" : "EQUIPAR"}</button><p class="mk-msg" id="mk-vm"></p>` : ""}`, "view big");
-  const idx = list.findIndex(x => x.id === it.id), N = list.length;
-  if (N > 1) {                                                // pasar al item anterior / siguiente sin cerrar el visor
-    m.querySelector(".mk-mbox").insertAdjacentHTML("beforeend", `<button class="mk-nv l" type="button" aria-label="Anterior">‹</button><button class="mk-nv r" type="button" aria-label="Siguiente">›</button><small class="mk-cnt">${idx + 1} / ${N}</small>`);
-    const go = d => { const n = list[(idx + d + N) % N]; viewItem(n, mine, host, st, list); m.close(); };
-    m.querySelector(".mk-nv.l").onclick = () => go(-1); m.querySelector(".mk-nv.r").onclick = () => go(1);
-    m._nk = e => { if (e.key === "ArrowLeft") go(-1); else if (e.key === "ArrowRight") go(1); }; document.addEventListener("keydown", m._nk, true);
+/* ---------- inspector a pantalla casi completa (fondo difuminado, ◀ ▶ entre artículos) ---------- */
+let inspEl = null;
+async function inspect(list, idx, mine, host, st) {
+  if (inspEl) inspEl.close();
+  if (!list || !list[idx]) return;
+  let i = idx, v = null, tok = 0, tx = null;
+  const m = document.createElement("div"); m.className = "mk-insp";
+  m.innerHTML = `<div class="mk-ibg"></div>
+    <button class="mk-ix" type="button" aria-label="Cerrar">✕</button>
+    <button class="mk-in l" type="button" aria-label="Anterior">◀</button><button class="mk-in r" type="button" aria-label="Siguiente">▶</button>
+    <div class="mk-ist"></div>
+    <div class="mk-icap"><h3></h3><p class="mk-desc"></p><div class="mk-irow"><small class="mk-ictr"></small><button class="mk-buy alt" type="button" id="mk-eq" hidden></button></div><p class="mk-msg" id="mk-vm"></p></div>`;
+  document.body.append(m); document.body.classList.add("mk-noscroll"); inspEl = m;
+  requestAnimationFrame(() => m.classList.add("on"));
+  const close = () => { if (!m.isConnected) return; if (v) v.stop(); document.removeEventListener("keydown", key, true); document.body.classList.remove("mk-noscroll"); m.classList.remove("on"); setTimeout(() => m.remove(), 220); inspEl = null; };
+  m.close = close;
+  const key = e => { if (e.key === "Escape") { e.stopPropagation(); close(); } else if (e.key === "ArrowLeft") { e.preventDefault(); go(-1); } else if (e.key === "ArrowRight") { e.preventDefault(); go(1); } };
+  document.addEventListener("keydown", key, true);
+  m.querySelector(".mk-ix").onclick = close;
+  m.querySelector(".mk-in.l").onclick = () => go(-1); m.querySelector(".mk-in.r").onclick = () => go(1);
+  m.addEventListener("pointerdown", e => { if (e.target.closest(".mk-ist canvas,button")) return; if (e.target === m || e.target.classList.contains("mk-ibg") || e.target.classList.contains("mk-ist")) tx = e.clientX; });
+  m.addEventListener("pointerup", e => { if (tx == null) return; const dx = e.clientX - tx; tx = null; if (Math.abs(dx) > 60) go(dx < 0 ? 1 : -1); else if (Math.abs(dx) < 6) close(); });
+  m.querySelector(".mk-in.l").hidden = m.querySelector(".mk-in.r").hidden = list.length < 2;
+  const go = d => { i = (i + d + list.length) % list.length; show(d); };
+  async function show(dir = 0) {
+    const it = list[i], my = ++tok, u = D.me(), eq = (mine && u && u.equip) || st.equip || {};
+    const on = wearable(it) && ((it.cat === "hat" && eq.hat === it.id) || (it.cat === "profile" && (eq.bg === it.id || eq.frame === it.id)));
+    const stg = m.querySelector(".mk-ist"), cap = m.querySelector(".mk-icap");
+    if (v) { v.stop(); v = null; }
+    stg.style.setProperty("--dir", dir || 1); stg.classList.remove("sw"); void stg.offsetWidth; stg.classList.add("sw");
+    cap.querySelector("h3").textContent = it.name + (it.ench ? " ✦" : ""); cap.querySelector(".mk-desc").textContent = it.desc || (it.chestOnly ? "Exclusivo del Cofre de End." : "");
+    cap.querySelector(".mk-ictr").textContent = list.length > 1 ? `${i + 1} / ${list.length} · arrastra para girarlo` : "Arrastra para girarlo";
+    m.querySelector("#mk-vm").textContent = "";
+    const eb = m.querySelector("#mk-eq"); eb.hidden = !(mine && wearable(it)); eb.textContent = on ? "QUITAR" : "EQUIPAR"; eb.disabled = false;
+    eb.onclick = async () => {
+      eb.disabled = true; const turnOn = eb.textContent === "EQUIPAR", ok = await equip(it, turnOn);
+      if (ok) { eb.textContent = turnOn ? "QUITAR" : "EQUIPAR"; eb.disabled = false; if (host.isConnected) inventory(host, { ...st, equip: D.me().equip || {} }); } else { m.querySelector("#mk-vm").textContent = "No se pudo guardar."; eb.disabled = false; }
+    };
+    if (it.kind && it.kind !== "bg-img" && !it.img) {
+      stg.innerHTML = `<div class="mk-vsw"></div>`; stg.firstChild.style.background = it.kind.startsWith("bg") ? bgCss(it) : "";
+      if (it.kind.startsWith("fr-")) { const uu = D.me(); stg.firstChild.innerHTML = `<img class="px fr ${it.kind}" style="--fc:${esc(it.c1)}" src="${esc(uu ? uu.avatar : "https://minotar.net/helm/MHF_Steve/64.png")}" alt="">`; }
+      return;
+    }
+    stg.innerHTML = `<canvas class="mk-3d"></canvas>`;
+    const cv = stg.firstChild, vv = viewer3d(cv, { max: 1000 });
+    const [img, obj] = await Promise.all([imgOf(it), it.model ? modelOf(it.id) : null]);
+    if (my !== tok || !m.isConnected) { vv.stop(); return; }
+    vv.set({ img, bb: obj, ench: it.ench }); v = vv;
   }
-  let v = null; m._done = () => { v && v.stop(); if (m._nk) document.removeEventListener("keydown", m._nk, true); };
-  const cv = m.querySelector("canvas");
-  if (it.kind && it.kind !== "bg-img" && !it.img) { cv.replaceWith(Object.assign(document.createElement("div"), { className: "mk-vsw" })); m.querySelector(".mk-vsw").style.background = it.kind.startsWith("bg") ? bgCss(it) : ""; if (it.kind.startsWith("fr-")) m.querySelector(".mk-vsw").innerHTML = thumb(it); }
-  else { v = viewer3d(cv); const [img, obj] = await Promise.all([imgOf(it), it.model ? modelOf(it.id) : null]); v.set({ img, bb: obj, ench: it.ench }); }
-  const eb = m.querySelector("#mk-eq");
-  if (eb) eb.onclick = async () => {
-    eb.disabled = true; const turnOn = eb.textContent === "EQUIPAR", ok = await equip(it, turnOn);
-    if (ok) { m.close(); if (host.isConnected) inventory(host, { ...st, equip: D.me().equip || {} }); } else { m.querySelector("#mk-vm").textContent = "No se pudo guardar."; eb.disabled = false; }
-  };
+  show();
 }
 
 /* ---------- API ---------- */
@@ -592,5 +625,6 @@ export const Mercado = {
   },
   leave() { if (root && root._layout) removeEventListener("resize", root._layout); stopStage(); if (root && openCat) closeBook(); },
   refresh() { if (root && openCat) renderBook(); else if (root) coinsLabel(); },
-  loadShop, hatCos, decorate, applyFrame, applyBg, inventory, itemOf, isAdmin, shopList
+  loadShop, hatCos, decorate, applyFrame, applyBg, inventory, itemOf, isAdmin, inspect,
+  shopItems: () => [...shop.values()], thumb, coinIcon, imgOf, modelOf, asModal: modal
 };
