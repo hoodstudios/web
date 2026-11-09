@@ -294,7 +294,7 @@ function openEditor(c, group) {
   let skinCv = null, slim = !!d.slim, busy = false;
   const field = (id, label, val, attrs = "") => `<label for="ce-${id}">${label}</label><input id="ce-${id}" value="${esc(val)}" ${attrs}>`;
   edHost.hidden = false; edHost.innerHTML = `<div class="box" role="dialog" aria-modal="true" aria-label="${c ? "Editar" : "Añadir"} personaje">
-    <button class="x" type="button" id="ce-x" aria-label="Cerrar">×</button>
+    <button class="x" type="button" id="ce-close" aria-label="Cerrar">×</button>
     <h3>${c ? "Editar personaje" : "Nuevo personaje"}</h3>
     <div class="cols">
       <div class="col">
@@ -311,7 +311,7 @@ function openEditor(c, group) {
           <div><input id="ce-file" type="file" accept="image/png"><div class="mini"><input id="ce-prem" placeholder="o nombre premium" maxlength="16" autocomplete="off"><button type="button" class="btn" id="ce-load">Cargar</button></div></div></div>
         <label for="ce-slim">Brazos</label>
         <select id="ce-slim"><option value="0">Normales (Steve)</option><option value="1">Finos (Alex)</option></select>
-        ${Object.keys(NET).map(k => field(k, NET[k].n, d.links[k] || "", 'type="url" placeholder="https://" maxlength="200" autocomplete="off"')).join("")}
+        ${Object.keys(NET).map(k => field("l-" + k, NET[k].n, d.links[k] || "", 'type="url" placeholder="https://" maxlength="200" autocomplete="off"')).join("")}
       </div>
     </div>
     <p class="err" id="ce-err" role="alert"></p>
@@ -356,7 +356,7 @@ function openEditor(c, group) {
   q("#ce-save").onclick = async () => {
     if (busy) return;
     const name = q("#ce-name").value.trim(); if (!name) return err("Pon un nombre.");
-    const links = {}; for (const k of Object.keys(NET)) { let v = q("#ce-" + k).value.trim(); if (v && !/^https?:\/\//i.test(v)) v = "https://" + v; if (v) { v = safeUrl(v); if (!v) return err("El enlace de " + NET[k].n + " no es válido."); } links[k] = v; }
+    const links = {}; for (const k of Object.keys(NET)) { let v = q("#ce-l-" + k).value.trim(); if (v && !/^https?:\/\//i.test(v)) v = "https://" + v; if (v) { v = safeUrl(v); if (!v) return err("El enlace de " + NET[k].n + " no es válido."); } links[k] = v; }
     let skin = null;
     try { skin = skinCv ? skinCv.toDataURL("image/png") : (d.skin || null); } catch (e) { return err("No se pudo procesar la skin."); }
     if (skin && skin.length >= 30000) return err("La skin pesa demasiado.");
@@ -369,7 +369,7 @@ function openEditor(c, group) {
       if (c && sel === c.id) { const n = chars.find(x => x.id === id); sel = null; if (n) select(id); }
     } catch (e) { busy = false; q("#ce-save").disabled = false; err("No se pudo guardar: " + (e.code === "permission-denied" ? "faltan las reglas de Firestore (colección credits)." : (e.code || e.message))); }
   };
-  q("#ce-cancel").onclick = q("#ce-x").onclick = close;
+  q("#ce-cancel").onclick = q("#ce-close").onclick = close;
   edHost.onclick = e => { if (e.target === edHost) close(); };
   edHost.onkeydown = e => { if (e.key === "Escape") close(); };
   q("#ce-name").focus();
