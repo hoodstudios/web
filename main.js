@@ -778,8 +778,11 @@ const Mine = (() => {
  * Biomas (por puntaje): Desierto → Templo → Aldea → Desierto rojo → Mesetas → Mineshaft (cueva).
  * Entrar a un bioma da XP (más lejos = más XP); en la Mineshaft la velocidad sube sin tope.
  * Monedas: aparecen al azar, máximo 25 por día (ventana de 24 h desde la primera). XP y monedas se guardan en players/<uid>. */
+/* Resolución interna del canvas de los minijuegos: pantalla completa a 2× son millones de píxeles por cuadro (lento sin GPU, p. ej. Brave sin aceleración).
+ * Limitamos a ~1,6 M de píxeles: se ve igual de nítido (el canvas se escala por CSS) y el juego mantiene 60 FPS. */
+const dprFor = (w, h) => Math.max(.75, Math.min(2, window.devicePixelRatio || 1, Math.sqrt(1.6e6 / Math.max(1, w * h))));
 const Game = (() => {
-  const cv = $("#cv"), c = cv.getContext("2d"), S = 36, B = 24, CB = 32, MAXT = 3, COIN_MAX = 25, DAY = 864e5;
+  const cv = $("#cv"), c = cv.getContext("2d", { alpha: false }), S = 36, B = 24, CB = 32, MAXT = 3, COIN_MAX = 25, DAY = 864e5;
   const BIO = [
     { at: 0,    name: "Desierto",            xp: 0 },
     { at: 5000,  name: "Templo del desierto", xp: 40 },
@@ -1388,7 +1391,7 @@ const Coral = (() => {
 
   /* ---- geometría de la pantalla ---- */
   function fit() {
-    DPR = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+    W = innerWidth; H = innerHeight; DPR = dprFor(W, H);
     cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); L = layout(); reef = null; bc = null;
   }
   function layout() {
@@ -1992,7 +1995,7 @@ const Elytra = (() => {
     figs = img ? createFigureSet(img, { slim: !!(md && md.slim), k: 3, cos }) : null; if (!figs) figKey = "";
   }
   function fit() {
-    DPR = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight; SC = clamp(Math.min(H / 540, W / 420), .45, 2.2); LW = W / SC; LH = H / SC;
+    W = innerWidth; H = innerHeight; DPR = dprFor(W, H); SC = clamp(Math.min(H / 540, W / 420), .45, 2.2); LW = W / SC; LH = H / SC;
     cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); bg = null; if (s && !s.run && !s.dead) { s.x = px(); s.y = LH / 2; }
   }
   const px = () => Math.min(260, LW * .28);
@@ -2197,8 +2200,13 @@ const Elytra = (() => {
   function shadeHex(h, f) { return rgb(f >= 0 ? mixc(hex(h), [255, 255, 255], f) : mixc(hex(h), [0, 0, 0], -f)).replace(/rgb\((\d+),(\d+),(\d+)\)/, (_, r, g, b) => "#" + [r, g, b].map(n => (+n).toString(16).padStart(2, "0")).join("")); }
   function drawBG() {
     if (!bg) buildBG(); const t = s.ph;
-    const gr = c.createLinearGradient(0, 0, 0, LH); gr.addColorStop(0, "#0c0418"); gr.addColorStop(.55, "#24104a"); gr.addColorStop(1, "#43207a"); c.fillStyle = gr; c.fillRect(0, 0, LW, LH);
-    [[.2, .3, 260, "rgba(150,80,230,.22)"], [.75, .55, 320, "rgba(60,200,220,.10)"], [.5, .9, 380, "rgba(200,90,240,.18)"]].forEach(([a, b2, r, cc], i) => { const x = a * LW + Math.sin(t * .05 + i) * 40, y = b2 * LH, g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, cc); g.addColorStop(1, "rgba(0,0,0,0)"); c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2); });
+    if (!bg.base) {                                               // degradado + brillos: se pintan UNA vez en un lienzo aparte (antes eran 4 rellenos de pantalla completa por cuadro)
+      const o = document.createElement("canvas"); o.width = cv.width; o.height = cv.height; const g = o.getContext("2d"); g.scale(o.width / LW, o.height / LH);
+      const gr = g.createLinearGradient(0, 0, 0, LH); gr.addColorStop(0, "#0c0418"); gr.addColorStop(.55, "#24104a"); gr.addColorStop(1, "#43207a"); g.fillStyle = gr; g.fillRect(0, 0, LW, LH);
+      [[.2, .3, 260, "rgba(150,80,230,.22)"], [.75, .55, 320, "rgba(60,200,220,.10)"], [.5, .9, 380, "rgba(200,90,240,.18)"]].forEach(([a, b2, r, cc]) => { const x = a * LW, y = b2 * LH, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, cc); rg.addColorStop(1, "rgba(0,0,0,0)"); g.fillStyle = rg; g.fillRect(x - r, y - r, r * 2, r * 2); });
+      bg.base = o;
+    }
+    c.imageSmoothingEnabled = true; c.drawImage(bg.base, 0, 0, LW, LH);
     c.fillStyle = "#fff"; bg.stars.forEach(q => { c.globalAlpha = .35 + .5 * Math.abs(Math.sin(t * .8 + q.ph)); c.fillRect(Math.round(q.x * LW), Math.round(q.y * LH * .85), q.r, q.r); }); c.globalAlpha = 1;
     c.imageSmoothingEnabled = false;
     bg.layers.forEach((ly, i) => { const off = -(bgOff[i] % ly.TW); for (let x = off; x < LW; x += ly.TW) c.drawImage(ly.o, Math.round(x), 0); });
@@ -2389,13 +2397,13 @@ const Play = (() => {
   const MODS = { runner: () => Game, coral: () => Coral, elytra: () => Elytra };
   function open(w) {
     curId = w.game.id; $("#cv").setAttribute("aria-label", w.game.label || w.game.name);
-    gc.classList.add("open"); gc.setAttribute("aria-hidden", "false");
+    gc.classList.add("open"); gc.setAttribute("aria-hidden", "false"); document.body.classList.add("ingame");
     MODS[curId]().start();
     try { if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); $("#cv").focus({ preventScroll: true }); } catch (e) { /* sin foco */ }
   }
   function close() {
     if (!isOpen()) return;
-    gc.classList.remove("open"); gc.setAttribute("aria-hidden", "true"); if (curId) MODS[curId]().stop(); curId = null;
+    gc.classList.remove("open"); gc.setAttribute("aria-hidden", "true"); document.body.classList.remove("ingame"); if (curId) MODS[curId]().stop(); curId = null;
   }
   $("#gc-close").onclick = close;
   addEventListener("keydown", e => { if (e.key === "Escape") close(); });

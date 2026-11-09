@@ -626,3 +626,7 @@ body.mk-noscroll{overflow:hidden}
 .pfig canvas{top:-14px;bottom:auto;height:calc(100% + 2px)}.rk-scroll{padding-top:14px}
 .prow:not(.sm) .plate{align-self:start;height:82px}
 @media(max-width:860px){.prow:not(.sm) .plate{height:74px}}
+
+/* Con un minijuego abierto no se pinta nada debajo (blur del fondo, barra con cristal, animaciones): menos trabajo para la GPU/CPU */
+body.ingame .ar-bgs,body.ingame .top,body.ingame .subnav,body.ingame .dc,body.ingame .foot{visibility:hidden!important}
+body.ingame .ar-bg{animation:none!important;filter:none!important}
