@@ -61,7 +61,7 @@ async function srcOf(ref) {
     const h = H(); if (!h) return "";
     try { const s = await h.fb.getDoc(h.fb.doc(h.db, "project_media", id)); const d = s.exists() ? s.data().d : ""; media.set(id, d); return d; } catch (e) { return ""; }
   }
-  return /^(https?:\/\/|proyectos\/|galeria\/|img\/)/i.test(ref) ? ref : "";
+  return /^(https?:\/\/|proyectos\/|galeria\/|img\/|[\w\-]+\.(png|jpe?g|webp|gif)$)/i.test(ref) ? ref : "";
 }
 
 /* ---------- Markdown estilo Discord (todo se escapa antes: no hay HTML inyectable) ---------- */
@@ -429,10 +429,66 @@ async function reload() {
   dirty = false;
   if (id && !modal.hidden) { const p = PROYECTOS.find(x => x.id === id); if (p) drawWindow(p); else { openId = null; sec.classList.remove("open"); modal.hidden = true; modal.innerHTML = ""; } }
 }
-function homeBtn() {                                                // botón "Proyecto activo" de la portada
-  const a = document.querySelector("a.btn.proj"), p = PROYECTOS.find(x => !x.soon); if (!a || !p) return;
-  a.href = "#proyectos/" + p.id; const im = a.querySelector("img"); if (im && p.img) im.src = p.img;
-  const sp = a.querySelector("span"); if (sp) sp.innerHTML = `${esc(p.status || "Proyecto")}<b>${esc(p.name)}</b>`;
+/* ---------- Botón "Proyecto activo" de la portada (se edita aparte: config/home) y color del scroll (config/theme) ---------- */
+let HOME = null;
+const SB_DEF = "#f7b41e";
+const setSb = c => document.documentElement.style.setProperty("--sb", HEX.test(c) ? c : SB_DEF);
+async function loadHome() {
+  const h = H(); if (!h) return;
+  try { const s = await h.fb.getDoc(h.fb.doc(h.db, "config", "home")); HOME = s.exists() ? s.data() : null; } catch (e) { HOME = null; }
+  try { const s = await h.fb.getDoc(h.fb.doc(h.db, "config", "theme")); if (s.exists()) setSb(s.data().sb); } catch (e) {}
+}
+async function homeBtn() {
+  const a = document.querySelector("a.btn.proj"); if (!a) return;
+  const p = PROYECTOS.find(x => !x.soon), c = HOME || {};
+  const href = c.href || (p ? "#proyectos/" + p.id : "#proyectos");
+  a.setAttribute("href", href); const ext = /^https?:\/\//i.test(href);
+  if (ext) { a.target = "_blank"; a.rel = "noopener noreferrer"; } else { a.removeAttribute("target"); a.removeAttribute("rel"); }
+  a.dataset.shape = c.shape === "oval" || c.shape === "rect" ? c.shape : "orig";
+  const im = a.querySelector("img"); const src = c.img ? await srcOf(c.img) : null;
+  if (im && src) im.src = src;
+  const sp = a.querySelector("span:not(.hb-edit)"); if (sp) sp.innerHTML = `${esc(c.status || "Proyecto activo")}<b>${esc(c.name || (p ? p.name : "Proyectos"))}</b>`;
+  let ed = a.querySelector(".hb-edit");
+  if (isAdmin()) {
+    if (!ed) { ed = document.createElement("span"); ed.className = "hb-edit"; ed.title = "Editar este botón"; ed.setAttribute("role", "button"); ed.textContent = "✎"; ed.onclick = e => { e.preventDefault(); e.stopPropagation(); editHome(); }; a.append(ed); }
+  } else if (ed) ed.remove();
+}
+function editHome() {
+  const c = HOME || {}, p = PROYECTOS.find(x => !x.soon);
+  const d = { name: c.name ?? (p ? p.name : ""), status: c.status ?? "Proyecto activo", href: c.href ?? (p ? "#proyectos/" + p.id : "#proyectos"), img: c.img ?? "hardhood-cataclysm.png", shape: c.shape || "orig" };
+  const w = document.createElement("div"); w.className = "pj-ask big";
+  w.innerHTML = `<form class="box"><h4>Botón “Proyecto activo” (portada)</h4>
+    <div class="fg">
+      <label>Texto pequeño (estado)<input name="status" maxlength="60" value="${esc(d.status)}"></label>
+      <label>Título<input name="name" maxlength="60" value="${esc(d.name)}"></label>
+      <label class="full">A dónde lleva (proyecto, página o enlace https://…)<input name="href" list="pj-dl" maxlength="300" value="${esc(d.href)}"></label>
+      <datalist id="pj-dl">${PROYECTOS.filter(x => !x.soon).map(x => `<option value="#proyectos/${esc(x.id)}">${esc(x.name)}</option>`).join("")}<option value="#proyectos">Lista de proyectos</option><option value="#calendario"></option><option value="#comunidad"></option></datalist>
+      <label>Forma de la imagen<select name="shape"><option value="orig">Original (sin recortar)</option><option value="rect">Rectangular</option><option value="oval">Ovalada</option></select></label>
+      <label>Color de la barra de scroll (toda la web)<span class="cl"><input name="sb" type="color" value="${HEX.test(getComputedStyle(document.documentElement).getPropertyValue("--sb").trim()) ? getComputedStyle(document.documentElement).getPropertyValue("--sb").trim() : SB_DEF}"></span></label>
+    </div>
+    <div class="cv"><div class="pv hp" id="pj-pv"><img alt=""></div>
+      <div class="cb"><button type="button" data-up>Subir imagen…</button><label>o ruta / URL<input name="img" value="${esc(String(d.img).startsWith("m:") ? "" : d.img)}" placeholder="https://… o hardhood-cataclysm.png"></label></div></div>
+    <p class="er" id="pj-er" role="alert"></p>
+    <div class="bt"><button type="button" data-reset class="dg">Restablecer</button><span style="flex:1"></span><button type="button" data-x>Cancelar</button><button class="go" type="submit">Guardar</button></div></form>`;
+  document.body.append(w); const f = w.querySelector("form"), pv = w.querySelector("#pj-pv"), er = w.querySelector("#pj-er");
+  f.elements.shape.value = d.shape; let ref = d.img;
+  const showPv = async () => { pv.querySelector("img").src = await srcOf(ref) || ""; pv.dataset.shape = f.elements.shape.value; };
+  showPv(); f.elements.shape.onchange = showPv;
+  f.elements.sb.oninput = () => setSb(f.elements.sb.value);
+  f.elements.img.oninput = () => { ref = f.elements.img.value.trim(); showPv(); };
+  w.querySelector("[data-up]").onclick = async () => { const r = await pickImage({ max: 600 }); if (r) { ref = r; f.elements.img.value = ""; showPv(); } };
+  const done = () => w.remove();
+  w.querySelector("[data-x]").onclick = done; w.addEventListener("pointerdown", e => { if (e.target === w) done(); }); w.addEventListener("keydown", e => { e.stopPropagation(); if (e.key === "Escape") done(); });
+  w.querySelector("[data-reset]").onclick = async () => { if (!confirm("¿Volver al botón automático (primer proyecto activo)?")) return; try { const h = H(); await h.fb.deleteDoc(h.fb.doc(h.db, "config", "home")); HOME = null; } catch (e) { er.textContent = "No se pudo restablecer."; return; } done(); homeBtn(); };
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const href = f.elements.href.value.trim();
+    if (href && !/^(#[\w\-\/]*|https?:\/\/\S+)$/i.test(href)) { er.textContent = "El destino debe empezar por # (sección de la web) o https://"; return; }
+    if (ref && !/^(m:|https?:\/\/|proyectos\/|galeria\/|img\/|[\w\-]+\.(png|jpe?g|webp|gif)$)/i.test(ref)) { er.textContent = "La imagen debe ser una subida, una URL https o una ruta del sitio."; return; }
+    const doc = { name: f.elements.name.value.trim().slice(0, 60), status: f.elements.status.value.trim().slice(0, 60), href: href.slice(0, 300), img: ref.slice(0, 300), shape: f.elements.shape.value };
+    try { const h = H(); await h.fb.setDoc(h.fb.doc(h.db, "config", "home"), doc); await h.fb.setDoc(h.fb.doc(h.db, "config", "theme"), { sb: f.elements.sb.value }); } catch (e2) { console.warn(e2); er.textContent = "No se pudo guardar (" + (e2.code || e2.message) + "). ¿Publicaste las reglas?"; return; }
+    HOME = doc; setSb(f.elements.sb.value); done(); homeBtn();
+  };
 }
 
 /* ---------- Modo editor: barra del carrusel y ficha del proyecto ---------- */
@@ -442,7 +498,8 @@ function updBar() {
   const p = PROYECTOS[cur()];
   eb.innerHTML = `<b class="lb">${p ? esc(p.name) : "Sin proyectos"}</b>
     <button type="button" data-a="edit" ${p ? "" : "disabled"}>✎ Editar ficha</button><button type="button" data-a="open" ${p && !p.soon ? "" : "disabled"}>📄 Editar contenido</button>
-    <span class="sep"></span><button type="button" data-a="new">＋ Nuevo proyecto</button><button type="button" data-a="ml" ${p && cur() > 0 ? "" : "disabled"}>◀ Mover</button><button type="button" data-a="mr" ${p && cur() < N - 1 ? "" : "disabled"}>Mover ▶</button><button type="button" data-a="del" class="dg" ${p ? "" : "disabled"}>🗑 Eliminar</button>`;
+    <span class="sep"></span><button type="button" data-a="new">＋ Nuevo proyecto</button><button type="button" data-a="ml" ${p && cur() > 0 ? "" : "disabled"}>◀ Mover</button><button type="button" data-a="mr" ${p && cur() < N - 1 ? "" : "disabled"}>Mover ▶</button><button type="button" data-a="del" class="dg" ${p ? "" : "disabled"}>🗑 Eliminar</button><span class="sep"></span><label class="sbc" title="Color de la barra de scroll de toda la web">🎨 Scroll <input type="color" id="pj-sb" value="${HEX.test(getComputedStyle(document.documentElement).getPropertyValue("--sb").trim()) ? getComputedStyle(document.documentElement).getPropertyValue("--sb").trim() : SB_DEF}"></label>`;
+  const sbi = $("#pj-sb"); if (sbi) { sbi.oninput = () => setSb(sbi.value); sbi.onchange = async () => { try { const h = H(); await h.fb.setDoc(h.fb.doc(h.db, "config", "theme"), { sb: sbi.value }); } catch (e) { alert("No se pudo guardar el color."); } }; }
   eb.querySelectorAll("[data-a]").forEach(b => b.onclick = async () => {
     const a = b.dataset.a, p2 = PROYECTOS[cur()];
     if (a === "edit") editProject(p2); else if (a === "open") open(cur()); else if (a === "new") editProject(null);
@@ -463,7 +520,7 @@ async function setEditing(on) {
   if (on) updBar();
 }
 tg.onclick = () => setEditing(!editing);
-const authSync = () => { const a = isAdmin(); tg.hidden = !a; if (!a && editing) { dirty = false; setEditing(false); } };
+const authSync = () => { homeBtn(); const a = isAdmin(); tg.hidden = !a; if (!a && editing) { dirty = false; setEditing(false); } };
 
 function editProject(p) {
   const isNew = !p, d = p ? { ...p } : { id: "", name: "Nuevo proyecto", status: "En desarrollo", imgRef: "proyectos/proximamente.jpg", img: "proyectos/proximamente.jpg", acc: "#ff8a1f", wbg: "#120a04", soon: false, start: "", end: "", tabs: [{ t: "Información", b: [{ k: "t", x: 4, y: 12, w: 92, md: "# Nuevo proyecto" }] }] };
@@ -554,6 +611,6 @@ let wired = false;
 async function wire() {
   if (wired || !H()) return; wired = true;
   H().auth.onAuthStateChanged(authSync); authSync();
-  await loadRemote(); const keep = Math.round(target); build(); target = pos = clamp(keep, 0, Math.max(0, N - 1)); layout(); sync(); publish(); homeBtn(); applyHash();
+  await Promise.all([loadRemote(), loadHome()]); const keep = Math.round(target); build(); target = pos = clamp(keep, 0, Math.max(0, N - 1)); layout(); sync(); publish(); homeBtn(); applyHash();
 }
 wire(); addEventListener("hood-ready", wire);
