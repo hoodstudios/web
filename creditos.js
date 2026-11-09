@@ -252,7 +252,16 @@ function showPanel(c) {
     ${isAdmin ? `<button type="button" class="btn cr-edit">✎ Editar</button>` : ""}`;
   panel.hidden = false; void panel.offsetWidth; panel.classList.add("in");
   const eb = panel.querySelector(".cr-edit"); if (eb) eb.onclick = () => openEditor(c);
+  fitName();
 }
+/* El nombre siempre cabe en una línea: si es largo, se reduce la letra hasta que entre */
+function fitName() {
+  const n = panel.querySelector(".cr-name"); if (!n || panel.hidden) return;
+  n.style.fontSize = ""; let fs = parseFloat(getComputedStyle(n).fontSize);
+  while (n.scrollWidth > n.clientWidth + 1 && fs > 9) { fs -= 0.5; n.style.fontSize = fs + "px"; }
+}
+addEventListener("resize", fitName);
+if (document.fonts) document.fonts.ready.then(fitName);
 function hidePanel() { panel.classList.remove("in"); panel.hidden = true; panel.innerHTML = ""; }
 
 /* ============================================================ Datos (Firestore) */
