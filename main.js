@@ -120,6 +120,7 @@ function route() {
   window.scrollTo(0, 0); if (cur === "inicio") fitSub();
 }
 addEventListener("hashchange", route);
+window.HOOD = { db, auth, fb: { doc, getDoc, setDoc, getDocs, collection, deleteDoc } }; dispatchEvent(new Event("hood-ready"));
 Cofres.init({ db, auth, esc, me, fb: { doc, getDoc, setDoc, updateDoc, increment, arrayUnion }, lvl: xp => xpInfo(xp).lvl, link: pLink, refresh: () => renderAuth() });
 Mercado.init({
   db, auth, esc, me,

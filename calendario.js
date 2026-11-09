@@ -227,6 +227,7 @@ async function loadEvents() {
   }
   refresh();
 }
+addEventListener("pj-update", () => { try { renderRight(); } catch (e) {} });
 function refresh() { render(); renderLeft(); renderRight(); }
 
 /* ---------- Admin ---------- */
