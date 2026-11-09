@@ -114,7 +114,7 @@ function computePose({ age, sneak: s, sw, head, slim }) {
     const f1 = Math.sin(f * Math.PI), f2 = Math.sin(sw * Math.PI) * -(head.x - 0.7) * 0.75;
     rAx -= f1 * 1.2 + f2; rAy += bodyY * 2; rAz += Math.sin(sw * Math.PI) * -0.4;
   }
-  P.head = W(0, 4.2 * s, 0, head.x, head.y, 0);
+  P.head = W(0, 4.2 * s, 0, head.x, -head.y, 0);   // head.y: giro en el mundo (+ = hacia la derecha de la pantalla)
   P.body = W(0, 3.2 * s, 0, 0.5 * s, bodyY, 0);
   P.rArm = W(rArm.x, rArm.y, rArm.z, rAx, rAy, rAz);
   P.lArm = W(lArm.x, lArm.y, lArm.z, lAx, lAy, lAz);
@@ -154,11 +154,11 @@ export class Brain {
 /* ============================================================ Renderizador */
 const VS = `attribute vec3 aPos;attribute vec2 aUv;attribute vec3 aNrm;uniform mat4 uMvp;uniform mat4 uNm;varying vec2 vUv;varying float vSh;
 void main(){gl_Position=uMvp*vec4(aPos,1.);vUv=aUv;vec3 n=normalize((uNm*vec4(aNrm,0.)).xyz);float up=n.y>0.?n.y*n.y:n.y*n.y*.5;vSh=n.x*n.x*.6+n.z*n.z*.8+up;}`;
-const FS = `precision highp float;varying vec2 vUv;varying float vSh;uniform sampler2D uTex;uniform float uAppear,uFlash,uBlock;
+const FS = `precision highp float;varying vec2 vUv;varying float vSh;uniform sampler2D uTex;uniform float uAppear,uFlash,uBlock,uMinA;
 float hs(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-void main(){vec4 c=texture2D(uTex,vUv);if(c.a<.1)discard;
+void main(){vec4 c=texture2D(uTex,vUv);if(c.a<uMinA)discard;
 if(uAppear<1.){float h=hs(floor(gl_FragCoord.xy/uBlock));if(h>uAppear)discard;}
-vec3 col=c.rgb*(.3+.8*vSh);col=mix(col,vec3(.62,.3,1.),(1.-uAppear)*.55);col=mix(col,vec3(.9,.7,1.),uFlash);gl_FragColor=vec4(min(col,1.),1.);}`;
+vec3 col=c.rgb*(.3+.8*vSh);col=mix(col,vec3(.62,.3,1.),(1.-uAppear)*.55);col=mix(col,vec3(.9,.7,1.),uFlash);gl_FragColor=vec4(min(col,1.),c.a);}`;
 
 export function createPlayer(canvas) {
   const gl = canvas.getContext("webgl", { alpha: true, antialias: true, premultipliedAlpha: true });
@@ -168,7 +168,7 @@ export function createPlayer(canvas) {
   if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
   gl.useProgram(pr);
   const loc = { p: gl.getAttribLocation(pr, "aPos"), u: gl.getAttribLocation(pr, "aUv"), n: gl.getAttribLocation(pr, "aNrm") };
-  const U = n => gl.getUniformLocation(pr, n), uMvp = U("uMvp"), uNm = U("uNm"), uAppear = U("uAppear"), uFlash = U("uFlash"), uBlock = U("uBlock");
+  const U = n => gl.getUniformLocation(pr, n), uMvp = U("uMvp"), uNm = U("uNm"), uAppear = U("uAppear"), uFlash = U("uFlash"), uBlock = U("uBlock"), uMinA = U("uMinA");
   const tex = gl.createTexture();
   gl.enable(gl.DEPTH_TEST); gl.clearColor(0, 0, 0, 0);
   let parts = [], slim = false, ready = false, mats = null, cssW = 1, cssH = 1;
@@ -207,16 +207,27 @@ export function createPlayer(canvas) {
     const b = o.brain, P = computePose({ age: o.age, sneak: b.sneak, sw: b.sw, head: o.head, slim });
     gl.uniform1f(uAppear, Math.min(1, o.appear)); gl.uniform1f(uFlash, o.flash || 0); gl.uniform1f(uBlock, Math.max(3, canvas.height / 90));
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    for (const p of parts) {
+    const mvps = parts.map(p => {
       const q = P[p.id], R = M.mul(M.RZ(q.r[2]), M.mul(M.RY(q.r[1]), M.RX(q.r[0])));
       const model = M.mul(mats.root, M.mul(M.T(q.p[0], q.p[1], q.p[2]), R));
-      gl.uniformMatrix4fv(uMvp, false, M.mul(mats.PV, model)); gl.uniformMatrix4fv(uNm, false, M.mul(mats.Rr, R));
-      gl.bindBuffer(gl.ARRAY_BUFFER, p.buf);
-      gl.enableVertexAttribArray(loc.p); gl.vertexAttribPointer(loc.p, 3, gl.FLOAT, false, 32, 0);
-      gl.enableVertexAttribArray(loc.u); gl.vertexAttribPointer(loc.u, 2, gl.FLOAT, false, 32, 12);
-      gl.enableVertexAttribArray(loc.n); gl.vertexAttribPointer(loc.n, 3, gl.FLOAT, false, 32, 20);
-      gl.drawArrays(gl.TRIANGLES, 0, p.n);
-    }
+      return { mvp: M.mul(mats.PV, model), nm: M.mul(mats.Rr, R) };
+    });
+    const pass = (first, count, minA) => {
+      gl.uniform1f(uMinA, minA);
+      parts.forEach((p, i) => {
+        gl.uniformMatrix4fv(uMvp, false, mvps[i].mvp); gl.uniformMatrix4fv(uNm, false, mvps[i].nm);
+        gl.bindBuffer(gl.ARRAY_BUFFER, p.buf);
+        gl.enableVertexAttribArray(loc.p); gl.vertexAttribPointer(loc.p, 3, gl.FLOAT, false, 32, 0);
+        gl.enableVertexAttribArray(loc.u); gl.vertexAttribPointer(loc.u, 2, gl.FLOAT, false, 32, 12);
+        gl.enableVertexAttribArray(loc.n); gl.vertexAttribPointer(loc.n, 3, gl.FLOAT, false, 32, 20);
+        gl.drawArrays(gl.TRIANGLES, first, count);
+      });
+    };
+    gl.disable(gl.BLEND); gl.depthMask(true);
+    pass(0, 36, 0.1);                                                   // capa base: opaca, como en el juego
+    gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+    pass(36, 36, 0.02);                                                 // capas exteriores: respetan la transparencia parcial
+    gl.depthMask(true); gl.disable(gl.BLEND);
   }
   /* Punto del modelo (px, y arriba) → píxeles CSS del lienzo */
   function project(pt) {
