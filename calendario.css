@@ -1,130 +1,131 @@
-/* Calendario: calendario centrado con luz neón, cartas laterales y editor de eventos (Admin) */
+/* Calendario: dos columnas fijas (Horarios + Proyecto Actual | calendario grande con vistas Día/Semana/Mes) y fondo difuminado del proyecto */
+.cal-bg{position:fixed;inset:0;z-index:-1;background:#1b1a1f center/cover no-repeat;opacity:0;visibility:hidden;transition:opacity .6s var(--ease),visibility 0s .6s;pointer-events:none;overflow:hidden}
+.cal-bg.on{opacity:1;visibility:visible;transition:opacity .6s var(--ease)}
+.cal-bg::before{content:"";position:absolute;inset:-60px;background:inherit;filter:blur(26px) brightness(.8) saturate(1.3)}
+.cal-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(24,23,28,.35),rgba(24,23,28,.55)),radial-gradient(120% 90% at 60% 40%,transparent 45%,rgba(18,17,21,.45))}
 
 #v-calendario.view{
-  --hh:74px;                                    /* alto de la cabecera fija */
-  --P:56px;                                     /* franja de cada carta que asoma detrás del calendario */
-  --glow:#ffb347;
-  /* ancho del calendario: se reduce si la pantalla es baja, para que todo quepa sin scroll */
-  --cal-w:min(560px,94vw,max(300px,calc((100dvh - var(--hh) - 330px) / .86)));
-  --cw:clamp(200px,calc((100vw - var(--cal-w)) / 2 - 14px),340px);   /* ancho de la carta ya expandida */
-  position:relative;max-width:none;margin:0;padding:var(--hh) 0 0;
-  height:100vh;height:100dvh;overflow:hidden;
+  --hh:70px;                                    /* alto de la cabecera fija */
+  --pan:rgba(34,33,38,.64);                     /* paneles: gris carbón, nunca negro puro */
+  --ln:rgba(255,255,255,.085);
+  --txt2:#a6a4ad;
+  position:fixed;inset:0;max-width:none;margin:0;padding:var(--hh) 0 0;overflow:hidden;z-index:1;
 }
-/* sin scroll en esta vista */
 html:has(#v-calendario:not([hidden])){overflow:hidden}
 body:has(#v-calendario:not([hidden])) .foot{display:none}
 
-.cal-stage{position:absolute;inset:var(--hh) 0 0;display:grid;place-items:center}
-.cal-wrap{position:relative;width:var(--cal-w)}
+.cal-app{height:100%;display:grid;grid-template-columns:clamp(250px,22vw,320px) minmax(0,1fr);min-height:0}
 
-/* ---------- Calendario ---------- */
-.cal{
-  position:relative;z-index:3;padding:16px clamp(12px,2.6vw,20px) clamp(12px,2.6vw,20px);
-  border-radius:18px;background:#0b0904;border:1px solid rgba(255,190,90,.6);
-  box-shadow:0 0 22px -4px rgba(255,176,70,.5),inset 0 0 28px -14px rgba(255,176,70,.35);
-}
-/* luz neón amarillo/naranja suave detrás del calendario */
-.cal-glow{position:absolute;z-index:0;inset:-12px;border-radius:38px;pointer-events:none;
-  background:linear-gradient(135deg,#ffd27a 0%,#ff9f45 55%,#ffb85c 100%);filter:blur(36px);opacity:.5}
+/* ---------- Columna izquierda ---------- */
+.cal-col{display:flex;flex-direction:column;min-height:0;background:linear-gradient(180deg,rgba(38,37,43,.78),rgba(30,29,34,.82));border-right:1px solid var(--ln);backdrop-filter:blur(14px);overflow:hidden}
+.cal-mod{padding:0 24px;min-height:0;display:flex;flex-direction:column}
+.cal-mod+.cal-mod{border-top:1px solid var(--ln)}
+.mod-h{display:flex;align-items:center;justify-content:space-between;width:100%;padding:26px 0 14px;background:none;border:0;color:#f3f1f6;font:inherit;font-size:1.32rem;font-weight:400;text-align:left;cursor:pointer}
+.mod-h svg{color:var(--txt2);transition:transform .3s var(--ease)}
+.mod-h:hover svg,.mod-h:focus-visible svg{color:var(--y)}
+.mod-h:focus-visible{outline:2px solid rgba(247,180,30,.6);outline-offset:2px;border-radius:6px}
+.cal-mod.closed .mod-h svg{transform:rotate(-90deg)}
+.mod-b{padding-bottom:22px;overflow:hidden;transition:opacity .25s}
+.cal-mod.closed .mod-b{display:none}
 
-.cal-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;margin-bottom:4px}
-.cal-title{display:block;text-align:center;padding:2px 6px;border:0;border-radius:12px;background:none;color:inherit;font:inherit;cursor:pointer;min-width:0}
-.cal-month{font:400 clamp(.95rem,calc(var(--cal-w) / 21),2.4rem)/1.1 var(--mc);color:var(--y);text-shadow:0 0 18px rgba(255,176,70,.45);white-space:nowrap}
-.cal-today{display:block;margin:0 auto 14px;padding:2px 8px;border:0;border-radius:8px;background:none;font:400 clamp(.72rem,1.5vw,.85rem) "Noto Sans",system-ui,sans-serif;color:var(--m);white-space:nowrap;cursor:pointer;transition:color .25s}
-.cal-today:hover{color:var(--t)}
-.cal-head .btn.round{width:clamp(34px,calc(var(--cal-w) / 13),42px);height:clamp(34px,calc(var(--cal-w) / 13),42px);font-size:1.4rem}
+.hor-ev{margin:0 0 10px;display:flex;flex-direction:column;gap:2px;font-size:.82rem;color:var(--txt2)}
+.hor-ev b{color:#f3f1f6;font-size:.95rem;font-weight:600;overflow-wrap:anywhere}
+.hor{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.hor li{display:grid;grid-template-columns:30px 1fr auto;align-items:baseline;gap:6px;padding:.52rem 0;font-size:.98rem;color:#ebe9ef}
+.hor .cc{font-size:.68rem;font-weight:700;letter-spacing:.04em;color:#dcdae2}
+.hor b{font-weight:400;color:var(--txt2);font-variant-numeric:tabular-nums}
+.hor small{margin-left:5px;font-size:.7rem;color:var(--y)}
+.hor li.def b{color:#f3f1f6}
 
-.cal-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-bottom:6px;text-align:center;font-size:.78rem;color:var(--m)}
-.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
-.cal-grid.swap{animation:calSwap .35s var(--ease) both}
-@keyframes calSwap{from{opacity:0;transform:translateX(var(--dx,10px))}to{opacity:1;transform:none}}
-
-.cal .d{
-  position:relative;aspect-ratio:1;display:grid;place-items:center;padding:0;
-  border:1px solid transparent;border-radius:12px;background:rgba(255,255,255,.035);
-  color:var(--t);font:500 clamp(.8rem,1.6vw,1rem) "Noto Sans",system-ui,sans-serif;cursor:default;
-  transition:border-color .25s,background .25s,box-shadow .25s;
-}
-.cal .d.o{background:none;color:rgba(168,154,112,.38)}
-.cal .d:hover,.cal .d:focus-visible{border-color:rgba(255,190,90,.65);background:rgba(255,176,70,.1)}
-.cal .d.has{cursor:pointer}
-.cal .d.has span{margin-top:-7px}
-.cal .d.today{background:var(--y);color:#000;font-weight:800;box-shadow:0 0 18px rgba(247,180,30,.55)}
-.cal .d.today:hover{border-color:#fff}
-.cal.admin .d{cursor:pointer}
-.bars{position:absolute;left:20%;right:20%;bottom:13%;display:flex;flex-direction:column;gap:2px;pointer-events:none}
-.bars i{display:block;height:3px;border-radius:3px;background:var(--c);box-shadow:0 0 6px var(--c),0 0 0 1px rgba(0,0,0,.35)}
-
-/* ---------- Mensaje emergente (debajo del calendario) ---------- */
-.cal-tip{
-  position:absolute;z-index:4;left:50%;top:calc(100% + 16px);width:min(440px,92vw);
-  padding:12px 16px;border-radius:14px;background:rgba(11,9,4,.94);border:1px solid var(--line);backdrop-filter:blur(8px);
-  opacity:0;transform:translate(-50%,6px);pointer-events:none;transition:opacity .25s,transform .35s var(--ease);
-}
-.cal-tip.on{opacity:1;transform:translate(-50%,0)}
-.cal-tip.hint{background:none;border-color:transparent;backdrop-filter:none;text-align:center;font-size:.88rem;color:var(--m)}
-.cal-tip .ev{display:flex;gap:10px;align-items:center}
-.cal-tip .ev+.ev{margin-top:7px}
-.cal-tip .bar{flex:none;width:4px;height:1.5rem;border-radius:3px;background:var(--c);box-shadow:0 0 8px var(--c)}
-.cal-tip .row{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:0 12px}
-.cal-tip b{font-weight:700;line-height:1.3}
-.cal-tip .t{color:var(--m);font-size:.88rem;white-space:nowrap}
-.cal-tip .more{margin-top:6px;font-size:.82rem;color:var(--m)}
-
-/* ---------- Cartas laterales (detrás del calendario) ---------- */
-.cal-side{
-  position:absolute;z-index:1;top:7%;bottom:7%;overflow:hidden;
-  width:calc(var(--P) + 16px);border:1px solid rgba(255,190,90,.42);border-radius:18px;
-  background:linear-gradient(180deg,#160e04,#0a0703);outline-offset:2px;
-  transition:width .55s var(--ease),border-color .4s,box-shadow .5s;
-}
-.cal-side.l{right:calc(100% - 16px)}
-.cal-side.r{left:calc(100% - 16px)}
-.cal-side:hover,.cal-side:focus-within,.cal-side.open{width:calc(var(--cw) + 16px);border-color:rgba(255,190,90,.75);box-shadow:0 0 44px -10px rgba(255,160,50,.5)}
-
-/* rótulo vertical: lo único que se ve mientras la carta está recogida */
-.cal-side .tab{position:absolute;top:0;bottom:0;width:var(--P);display:grid;place-items:center;writing-mode:vertical-rl;font:400 .82rem var(--mc);letter-spacing:.04em;color:var(--y);white-space:nowrap;transition:opacity .25s .1s}
-.cal-side.l .tab{right:16px;rotate:180deg}
-.cal-side.r .tab{left:16px}
-.cal-side:hover .tab,.cal-side:focus-within .tab,.cal-side.open .tab{opacity:0;transition-delay:0s}
-
-.cal-side .in{position:absolute;top:0;bottom:0;width:var(--cw);padding:18px 16px;display:flex;flex-direction:column;gap:12px;min-height:0;opacity:0;transition:opacity .2s}
-.cal-side.l .in{right:16px}
-.cal-side.r .in{left:16px}
-.cal-side:hover .in,.cal-side:focus-within .in,.cal-side.open .in{opacity:1;transition:opacity .4s .22s}
-
-.cs-title{font:400 1.05rem/1.2 var(--mc);color:var(--y)}
-.cs-ev{display:flex;flex-direction:column;gap:2px}
-.cs-ev b{font-weight:700;line-height:1.25}
-.cs-ev span{font-size:.85rem;color:var(--m)}
-.cs-tz{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
-.cs-tz li{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:.42rem 0;border-bottom:1px solid var(--line);font-size:.9rem;white-space:nowrap}
-.cs-tz li:last-child{border-bottom:0}
-.cs-tz li.def span{color:var(--y)}
-.cs-tz b{font-variant-numeric:tabular-nums;font-weight:700}
-.cs-tz small{color:var(--m);font-weight:400;margin-left:.35rem}
-.cs-empty{margin:0;color:var(--m);font-size:.92rem}
-
-/* carta vertical del proyecto: lleva a la sección Proyectos */
-.cs-proj{position:relative;flex:1 1 0;min-height:0;aspect-ratio:3/4;max-width:100%;align-self:center;display:block;overflow:hidden;border-radius:14px;border:2px solid var(--acc);color:#fff;text-decoration:none;background:#111;transition:box-shadow .4s,transform .4s var(--ease)}
-.cs-proj:hover,.cs-proj:focus-visible{transform:translateY(-3px);box-shadow:0 0 30px -6px var(--acc)}
-.cs-proj img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:transform 1s var(--ease)}
+.cs-proj{position:relative;display:block;height:clamp(110px,24vh,230px);border-radius:16px;overflow:hidden;border:1px solid var(--ln);background:#26252b;box-shadow:0 10px 26px -12px rgba(0,0,0,.6);transition:transform .35s var(--ease),border-color .3s,box-shadow .3s}
+.cs-proj img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:transform .6s var(--ease)}
+.cs-proj::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.5),transparent 45%)}
+.cs-proj .lbl{position:absolute;z-index:1;left:15px;top:13px;right:15px;display:flex;flex-direction:column;gap:2px;text-shadow:0 2px 8px rgba(0,0,0,.7)}
+.cs-proj .nm{font-size:1.02rem;font-weight:700;color:#fff;overflow-wrap:anywhere}
+.cs-proj .st{font-size:.72rem;color:var(--acc,#ddd);letter-spacing:.04em;text-transform:uppercase}
+.cs-proj:hover,.cs-proj:focus-visible{transform:translateY(-3px);border-color:var(--acc,var(--y));box-shadow:0 14px 30px -12px rgba(0,0,0,.7);outline:none}
 .cs-proj:hover img{transform:scale(1.06)}
-.cs-proj .lbl{position:absolute;left:0;right:0;bottom:0;padding:34px 12px 12px;display:flex;flex-direction:column;gap:2px;background:linear-gradient(to top,rgba(0,0,0,.92),rgba(0,0,0,0))}
-.cs-proj .nm{font:400 1.15rem/1.1 var(--mc);text-shadow:0 2px 0 rgba(0,0,0,.6)}
-.cs-proj .st{font-size:.8rem;font-weight:500;color:var(--acc)}
-.cs-dates{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0}
-.cs-dates div{padding:.45rem .6rem;border:1px solid var(--line);border-radius:12px;background:var(--glass)}
-.cs-dates dt{font-size:.74rem;color:var(--m)}
-.cs-dates dd{margin:0;font-weight:700;font-size:.92rem;line-height:1.25}
+.cs-dates{display:flex;gap:14px;margin:12px 2px 0}
+.cs-dates div{flex:1;min-width:0}
+.cs-dates dt{font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--txt2)}
+.cs-dates dd{margin:1px 0 0;font-size:.86rem;color:#ebe9ef}
+.cs-empty{margin:0;color:var(--txt2);font-size:.9rem}
 
-/* ---------- Editor de eventos (solo Admin) ---------- */
-.cal-ed-host{position:absolute;z-index:8;inset:var(--hh) 0 0;display:grid;place-items:center;padding:1rem;background:rgba(0,0,0,.72);backdrop-filter:blur(6px);animation:pjFade .3s ease both}
-.cal-ed{position:relative;width:100%;max-width:440px;max-height:calc(100dvh - var(--hh) - 2rem);overflow:auto;background:#0b0904;border-color:rgba(255,190,90,.6);box-shadow:0 0 50px -12px rgba(255,176,70,.55)}
+/* ---------- Columna derecha: calendario ---------- */
+.cal{display:flex;flex-direction:column;min-width:0;min-height:0;padding:26px clamp(16px,2.6vw,38px) 18px clamp(16px,2.8vw,40px)}
+.cal-top{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-bottom:16px}
+.cal-title{margin:0;display:flex;align-items:baseline;gap:12px;font-weight:400;text-shadow:0 2px 14px rgba(0,0,0,.5)}
+.cal-title b{font-size:clamp(1.6rem,2.5vw,2.15rem);font-weight:800;color:#f6f5f9;letter-spacing:-.01em}
+.cal-title span{font-size:clamp(1.3rem,2.1vw,1.8rem);font-weight:500;color:var(--txt2)}
+.cal-ctl{display:flex;align-items:center;gap:18px}
+.cseg{display:flex;padding:3px;border-radius:11px;background:rgba(255,255,255,.06);border:1px solid var(--ln)}
+.cseg button{padding:.42rem 1rem;border:0;border-radius:8px;background:none;color:#e8e6ee;font:inherit;font-size:.9rem;font-weight:500;cursor:pointer;transition:background .2s,color .2s}
+.cseg button:hover{background:rgba(255,255,255,.07)}
+.cseg button[aria-pressed=true]{background:rgba(255,255,255,.2);color:#fff}
+.cal-nav{display:flex;align-items:center;gap:6px}
+.cal-nav button{min-width:30px;height:32px;padding:0 .5rem;border:0;border-radius:8px;background:none;color:var(--txt2);font:inherit;font-size:1.25rem;line-height:1;cursor:pointer;transition:color .2s,background .2s}
+.cal-nav #cal-today{font-size:.98rem;font-weight:700;color:#cfcdd6}
+.cal-nav button:hover,.cal-nav button:focus-visible{color:#fff;background:rgba(255,255,255,.08);outline:none}
+
+.cal-body{flex:1;min-height:0;display:flex;flex-direction:column}
+.cal-body.swap{animation:calSwap .35s var(--ease) both}
+@keyframes calSwap{from{opacity:0;transform:translateX(var(--dx,0))}to{opacity:1;transform:none}}
+.cal-hint{margin:10px 0 0;text-align:center;font-size:.82rem;color:var(--y);min-height:1.1em}
+.cal-hint[hidden]{display:none}
+
+/* Mes */
+.mwk{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:0 0 8px}
+.mwk span{padding-left:12px;font-size:.78rem;font-weight:600;color:var(--txt2)}
+.mgrid{flex:1;min-height:0;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-template-rows:repeat(6,minmax(0,1fr));border:1px solid var(--ln);border-radius:12px;overflow:hidden;background:var(--pan);backdrop-filter:blur(10px)}
+.d{position:relative;min-width:0;min-height:0;padding:7px 8px 4px;border-right:1px solid var(--ln);border-bottom:1px solid var(--ln);cursor:pointer;overflow:hidden;transition:background .2s}
+.d:nth-child(7n){border-right:0}
+.d:nth-last-child(-n+7){border-bottom:0}
+.d:hover,.d:focus-visible{background:rgba(255,255,255,.055);outline:none}
+.d:focus-visible{box-shadow:inset 0 0 0 2px rgba(247,180,30,.55)}
+.d .n{display:grid;place-items:center;min-width:26px;height:26px;margin:0 0 3px 1px;padding:0 4px;border:0;border-radius:50%;background:none;font:inherit;font-size:.9rem;color:#e4e2ea;cursor:pointer;transition:background .2s}
+.d .n:hover{background:rgba(255,255,255,.14)}
+.d.wk .n{color:#aeb6cc}
+.d.o .n{color:rgba(230,228,236,.32)}
+.d.today .n{background:#ff3b30;color:#fff;font-weight:700;box-shadow:0 0 12px rgba(255,59,48,.5)}
+.dpl{display:flex;flex-direction:column;gap:3px;min-width:0}
+.pill{display:flex;align-items:center;gap:5px;min-width:0;padding:2px 6px;border-radius:5px;background:color-mix(in srgb,var(--c) 24%,transparent);font-size:.72rem;line-height:1.25;color:#f2f0f6;white-space:nowrap;overflow:hidden}
+.pill i{flex:none;width:6px;height:6px;border-radius:50%;background:var(--c)}
+.pill em{flex:none;font-style:normal;color:#cfcdd8;font-variant-numeric:tabular-nums}
+.pill .pn{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.d.o .dpl{opacity:.5}
+.more{padding:0 6px;font-size:.7rem;color:var(--txt2)}
+
+/* Semana y Día (cuadrícula de horas; solo esta zona se desplaza si hace falta) */
+.tg{flex:1;min-height:0;overflow:auto;border:1px solid var(--ln);border-radius:12px;background:var(--pan);backdrop-filter:blur(10px);scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.2) transparent}
+.tg-h,.tg-b{display:grid;grid-template-columns:54px repeat(var(--n),minmax(0,1fr))}
+.tg-h{position:sticky;top:0;z-index:3;background:rgba(40,39,45,.94);border-bottom:1px solid var(--ln)}
+.tg-h .tz{align-self:end;padding:0 0 8px 8px;font-size:.62rem;letter-spacing:.06em;color:var(--txt2)}
+.dh{display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 0 8px;border:0;border-left:1px solid var(--ln);background:none;font:inherit;color:#dedce5;cursor:pointer;transition:background .2s}
+.dh:hover{background:rgba(255,255,255,.06)}
+.dh small{font-size:.74rem;font-weight:600;color:var(--txt2);text-transform:uppercase;letter-spacing:.05em}
+.dh b{display:grid;place-items:center;min-width:30px;height:30px;border-radius:50%;font-size:1.05rem;font-weight:500}
+.dh.today b{background:#ff3b30;color:#fff;font-weight:700;box-shadow:0 0 12px rgba(255,59,48,.5)}
+.tg-b{position:relative;height:calc(24 * var(--hr))}
+.tg-g{position:relative}
+.tg-g span{position:absolute;right:8px;transform:translateY(-50%);font-size:.7rem;color:var(--txt2);font-variant-numeric:tabular-nums}
+.col{position:relative;border-left:1px solid var(--ln);background-image:linear-gradient(to bottom,var(--ln) 1px,transparent 1px);background-size:100% var(--hr);cursor:default}
+.col.today{background-color:rgba(255,255,255,.025)}
+#v-calendario.admin .col{cursor:copy}
+.ev{position:absolute;z-index:1;padding:4px 8px;border-radius:7px;border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 30%,rgba(40,39,45,.9));color:#fff;overflow:hidden;display:flex;flex-direction:column;gap:1px;font-size:.78rem;line-height:1.25;box-shadow:0 4px 12px -6px rgba(0,0,0,.6)}
+.ev b{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev span{font-size:.7rem;color:#e0deea;white-space:nowrap}
+.ev.s{flex-direction:row;align-items:center;gap:6px}
+#v-calendario.admin .ev{cursor:pointer}
+.nowl{position:absolute;z-index:2;left:0;right:0;height:2px;background:#ff3b30;pointer-events:none}
+.nowl::before{content:"";position:absolute;left:-5px;top:-4px;width:10px;height:10px;border-radius:50%;background:#ff3b30}
+
+/* ---------- Editor de eventos (Admin) ---------- */
+.cal-ed-host{position:absolute;z-index:8;inset:var(--hh) 0 0;display:grid;place-items:center;padding:1rem;background:rgba(18,17,21,.7);backdrop-filter:blur(6px);animation:pjFade .3s ease both}
+.cal-ed{position:relative;width:100%;max-width:440px;max-height:calc(100dvh - var(--hh) - 2rem);overflow:auto;background:#222126;border-color:var(--ln);box-shadow:0 30px 70px -20px rgba(0,0,0,.7)}
 .cal-ed h3{margin:0 2rem .8rem 0;font-size:1.25rem;color:var(--y)}
 .cal-ed .x{position:absolute;top:.4rem;right:.8rem}
 .ed-list{list-style:none;margin:0 0 .4rem;padding:0;display:flex;flex-direction:column;gap:6px}
-.ed-list li{display:flex;align-items:center;gap:10px;padding:.5rem .7rem;border:1px solid var(--line);border-radius:12px;background:var(--glass)}
+.ed-list li{display:flex;align-items:center;gap:10px;padding:.5rem .7rem;border:1px solid var(--ln);border-radius:12px;background:rgba(255,255,255,.04)}
 .ed-list .bar{flex:none;width:4px;align-self:stretch;border-radius:3px;background:var(--c)}
 .ed-list .txt{flex:1;min-width:0}
 .ed-list b{display:block;font-weight:700;overflow-wrap:anywhere}
@@ -139,48 +140,25 @@ body:has(#v-calendario:not([hidden])) .foot{display:none}
 .ed-sw button[aria-pressed=true]{border-color:#fff;transform:scale(1.15)}
 .cal-ed form .btn+.btn{margin-top:.5rem}
 
-/* ---------- Escritorio: el calendario ocupa el máximo de pantalla (casillas más anchas que altas) ---------- */
-@media(min-width:981px){
-  #v-calendario.view{
-    --P:46px;
-    --rh:clamp(38px,calc((100dvh - var(--hh) - 316px) / 6),120px);                 /* alto de cada fila de días */
-    --cal-w:clamp(300px,min(calc(var(--rh) * 10.15 + 64px),calc(100vw - 468px)),1500px);
-    --cw:clamp(190px,calc((100vw - var(--cal-w)) / 2 - 14px),272px);                /* cartas delgadas */
-  }
-  .cal-stage{bottom:124px}                                                         /* espacio fijo para el mensaje de abajo */
-  .cal-grid{grid-auto-rows:var(--rh)}
-  .cal .d{aspect-ratio:auto;height:100%;font-size:clamp(.85rem,calc(var(--rh) * .27),1.6rem)}
-  .cal .d.has span{margin-top:-9px}
-  .bars{left:24%;right:24%;bottom:14%}
-  .bars i{height:clamp(3px,calc(var(--rh) * .05),5px)}
-  .cal-week{font-size:clamp(.78rem,calc(var(--rh) * .2),1rem)}
-  .cal-today{font-size:clamp(.8rem,1.1vw,1rem)}
+/* ---------- Pantallas pequeñas: una sola columna y la página sí se desplaza ---------- */
+@media(max-width:860px){
+  html:has(#v-calendario:not([hidden])){overflow:auto}
+  #v-calendario.view{--hh:9.6rem;position:relative;inset:auto;overflow:visible;padding:var(--hh) 0 2rem;z-index:1}
+  .cal-app{display:flex;flex-direction:column-reverse;height:auto}
+  .cal-col{border-right:0;border-top:1px solid var(--ln)}
+  .cal{padding:12px 12px 8px}
+  .cal-body{min-height:60vh}
+  .cal-top{gap:10px}
+  .cal-ctl{width:100%;justify-content:space-between;gap:8px}
+  .cal-ed-host{position:fixed;inset:0;z-index:60}
+  .cal-ed{max-height:92vh}
+  .d{padding:4px 3px 2px}
+  .d .n{min-width:22px;height:22px;font-size:.8rem}
+  .mwk span{padding-left:4px;font-size:.66rem}
+  .pill{padding:0;height:6px;background:var(--c);border-radius:3px}
+  .pill em,.pill .pn,.pill i{display:none}
+  .more{padding:0;font-size:.6rem}
+  .tg-h,.tg-b{grid-template-columns:38px repeat(var(--n),minmax(0,1fr))}
+  .ev span{display:none}
 }
-
-/* ---------- Pantallas estrechas: las cartas se pegan a los bordes y, al tocarlas, se abren sobre el calendario ---------- */
-@media(max-width:980px){
-  #v-calendario.view{--P:40px;--cal-w:min(560px,calc(100vw - 96px),max(280px,calc((100dvh - var(--hh) - 330px) / .86)));--cw:min(82vw,320px)}
-  .cal-side.l{right:auto;left:calc(50% - 50vw)}
-  .cal-side.r{left:auto;right:calc(50% - 50vw)}
-  .cal-side{width:var(--P);z-index:5;top:-5%;bottom:-5%}
-  .cal-side .in{gap:9px;padding:14px 16px}
-  .cs-tz li{padding:.3rem 0}
-  .cal-side:hover,.cal-side:focus-within,.cal-side.open{width:var(--cw)}
-  .cal-side.l .in{right:auto;left:0}
-  .cal-side.r .in{left:auto;right:0}
-  .cal-side .tab{font-size:.74rem}
-  .cal-side.l .tab{right:auto;left:0}
-  .cal-side.r .tab{left:auto;right:0}
-  .cal-side.l{border-left:0;border-radius:0 18px 18px 0}
-  .cal-side.r{border-right:0;border-radius:18px 0 0 18px}
-}
-@media(max-width:860px){#v-calendario.view{--hh:140px}}
-@media(max-height:620px){.cal-side .in{gap:8px;padding:12px 14px}.cs-tz li{padding:.3rem 0}}
-
-/* style.css apaga las transiciones con "reducir movimiento"; aquí se conservan las de abrir/cerrar las cartas */
-@media(prefers-reduced-motion:reduce){
-  #v-calendario .cal-side{transition:width .55s var(--ease),border-color .4s,box-shadow .5s!important}
-  #v-calendario .cal-side .in{transition:opacity .3s!important}
-  #v-calendario .cal-tip{transition:opacity .25s!important}
-  .cal-grid.swap{animation:none}
-}
+@media(prefers-reduced-motion:reduce){.cal-body.swap{animation:none}}
