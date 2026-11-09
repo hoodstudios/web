@@ -41,14 +41,14 @@ body.crfix main{padding-bottom:0}
 .cr-slot.add:hover{opacity:1}
 
 /* ---------- Ficha ---------- */
-.cr-panel{position:absolute;z-index:5;top:calc(78px + 3vh);width:min(36vw,480px);padding:1.15rem 1.35rem 1.3rem;color:#f1ead6;
+.cr-panel{position:absolute;z-index:5;top:calc(78px + 3vh);width:min(45vw,720px);padding:1.3rem 1.6rem 1.5rem;color:#f1ead6;
   background:linear-gradient(180deg,rgba(52,52,58,.66),rgba(14,14,18,.8));border:1px solid rgba(255,255,255,.08);box-shadow:0 18px 50px -12px rgba(0,0,0,.7);backdrop-filter:blur(7px);opacity:0}
 .cr-panel.r{right:4.5vw}.cr-panel.l{left:4.5vw}
 .cr-panel.in{opacity:1;animation:crIn .5s var(--ease) both}
 .cr-panel.r.in{--fx:46px}.cr-panel.l.in{--fx:-46px}
 @keyframes crIn{from{opacity:0;transform:translateX(var(--fx))}to{opacity:1;transform:none}}
 .cr-panel .hd{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem}
-.cr-name{font:400 clamp(1.9rem,4.2vw,3.3rem)/1 var(--font);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;flex:1;min-width:0;text-shadow:3px 3px 0 rgba(0,0,0,.55)}
+.cr-name{font:400 clamp(1.9rem,4.4vw,3.8rem)/1 var(--font);text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;flex:1;min-width:0;text-shadow:3px 3px 0 rgba(0,0,0,.55)}
 .cr-tag{flex:none;margin-top:.4rem;font:400 clamp(.8rem,1.1vw,1rem)/1 var(--font);letter-spacing:.06em;text-transform:uppercase;color:#a8a8b2}
 .cr-roles,.cr-bio{overflow-wrap:anywhere}
 .cr-roles{margin:.55rem 0 0;font:400 clamp(.78rem,1.05vw,.95rem)/1.5 var(--font);color:#d6d0be}
