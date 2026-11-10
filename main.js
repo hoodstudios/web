@@ -8,7 +8,7 @@ import {
   GoogleAuthProvider, signInWithPopup, linkWithPopup, unlink, updatePassword, getAdditionalUserInfo
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, setDoc, updateDoc, getDocs, collection, query, where, orderBy, limit, serverTimestamp, increment, deleteDoc, arrayUnion
+  getFirestore, doc, getDoc, setDoc, updateDoc, getDocs, collection, query, where, orderBy, limit, serverTimestamp, increment, deleteDoc, arrayUnion, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -55,6 +55,8 @@ const GAMES = [
   { id: "coral", name: "Coral Stack", col: "scores_coral", field: "score", unit: "puntos" },
   { id: "elytra", name: "Elytra Fly", col: "scores_elytra", field: "score", unit: "puntos" }
 ];
+/* La cuenta del estudio (HOODSTUDIO) es de administración: no aparece en ningún ranking ni puntúa. */
+const isAdminName = n => String(n || "").toLowerCase() === "hoodstudio";
 const medalCount = d => Array.isArray(d.medalIds) ? d.medalIds.length : (Number(d.medals) || 0);
 const pLink = n => "#perfil/" + encodeURIComponent(n);
 
@@ -120,7 +122,7 @@ function route() {
   window.scrollTo(0, 0); if (cur === "inicio") fitSub();
 }
 addEventListener("hashchange", route);
-window.HOOD = { db, auth, fb: { doc, getDoc, setDoc, getDocs, collection, deleteDoc } }; dispatchEvent(new Event("hood-ready"));
+window.HOOD = { db, auth, MEDALS, fb: { doc, getDoc, setDoc, getDocs, collection, deleteDoc, updateDoc, query, orderBy, limit, where, serverTimestamp, writeBatch }, signOut: () => signOut(auth), updatePassword: pw => updatePassword(auth.currentUser, pw) }; dispatchEvent(new Event("hood-ready"));
 Cofres.init({ db, auth, esc, me, fb: { doc, getDoc, setDoc, updateDoc, increment, arrayUnion }, lvl: xp => xpInfo(xp).lvl, link: pLink, refresh: () => renderAuth() });
 Mercado.init({
   db, auth, esc, me,
@@ -526,7 +528,7 @@ async function renderPlayers() {
       getDocs(query(collection(db, "scores"), limit(500))).catch(() => null)
     ]);
     const scores = new Map(); if (sc) sc.docs.forEach(d => scores.set(d.id, Math.floor(Number(d.data().score)) || 0));
-    plData = snap.docs.map(d => ({ id: d.id, ...d.data(), score: scores.get(d.id) || 0 }));
+    plData = snap.docs.map(d => ({ id: d.id, ...d.data(), score: scores.get(d.id) || 0 })).filter(x => !isAdminName(x.name));
     const had = !!box.querySelector(".prow"); plRows = had ? plRows : new Map();
     paintPlayers(had);
   } catch (e) { console.warn(e); box.innerHTML = `<p class="empty">No se pudo cargar la lista de jugadores.</p>`; }
@@ -710,7 +712,7 @@ async function renderRank() {
     try { docs = (await getDocs(query(collection(db, w.game.col), orderBy(w.game.field, "desc"), limit(200)))).docs; }
     catch (e) { console.warn("ranking: consulta ordenada falló, ordeno en el navegador", e); docs = (await getDocs(query(collection(db, w.game.col), limit(200)))).docs; }
     if (tok !== rankTok) return;
-    const all = docs.map(d => ({ id: d.id, ...d.data() })).filter(x => Number(x[w.game.field]) > 0).sort((a, b) => Number(b[w.game.field]) - Number(a[w.game.field]));
+    const all = docs.map(d => ({ id: d.id, ...d.data() })).filter(x => Number(x[w.game.field]) > 0 && !isAdminName(x.name)).sort((a, b) => Number(b[w.game.field]) - Number(a[w.game.field]));
     const xps = new Map(); try { (await getDocs(query(collection(db, "players"), limit(300)))).docs.forEach(d => xps.set(d.id, xpOf(d.data()))); } catch (e) { /* sin niveles */ }
     if (tok !== rankTok) return;
     const u = me(), top = all.slice(0, 50);
@@ -726,7 +728,7 @@ async function renderRank() {
   } catch (e) { console.warn(e); if (tok === rankTok) { box.classList.add("end"); box.innerHTML = `<p class="empty">No se pudo cargar el ranking${e && e.code ? " (" + esc(e.code) + ")" : ""}.</p>`; } }
 }
 async function saveScore(score, g = WORLDS[0].game) {
-  const u = me(); if (!u || !score) return;
+  const u = me(); if (!u || !score || isAdminName(u.name)) return;
   try {
     const ref = doc(db, g.col, u.uid), snap = await getDoc(ref);
     if (snap.exists() && snap.data()[g.field] >= score) return;
