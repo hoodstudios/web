@@ -4,13 +4,14 @@
  * Las dependencias llegan desde main.js con Mercado.init(...) para no duplicar Firebase. */
 import { createFigureSet, ANIMS } from "./avatar.js";
 import { viewer3d, parseBB } from "./viewer3d.js";
+import { modelThumb, modelPreview, furnKinds, petKinds, FURN, PETS } from "./habitacion.js";
 
 const ADMIN_EMAIL = "hoodstudio@hoodstudio.app";
 const CATS = [
   { id: "hat", name: "Sombreros", book: "gold", col: "#f5c93a", on: true, tip: "Estilo para tu avatar" },
   { id: "profile", name: "Perfil", book: "orange", col: "#e8742a", on: true, tip: "Fondos y marcos de tu perfil" },
-  { id: "pets", name: "Mascotas", book: "purple", col: "#9a4fe0", on: false, tip: "Compañeros para tu habitación" },
-  { id: "furn", name: "Muebles", book: "green", col: "#33b25a", on: false, tip: "Decora tu habitación" },
+  { id: "pets", name: "Mascotas", book: "purple", col: "#9a4fe0", on: true, tip: "Compañeros para tu habitación" },
+  { id: "furn", name: "Muebles", book: "green", col: "#33b25a", on: true, tip: "Decora tu habitación" },
   { id: "items", name: "Items", book: "blue", col: "#3a64e0", on: true, tip: "Para exhibir en tu inventario" }
 ];
 const KINDS = {
@@ -104,7 +105,9 @@ export async function decorate({ equip, frameEls = [], bgEl = null }) {
   frameEls.forEach(e => applyFrame(e, shop.get(eq.frame)));
   if (bgEl) applyBg(bgEl, shop.get(eq.bg));
 }
+const isModel = it => (it.cat === "pets" && !!PETS[it.kind]) || (it.cat === "furn" && !!FURN[it.kind]);
 function thumb(it) {
+  if (it.cat === "pets" || it.cat === "furn") { const u = isModel(it) ? modelThumb(it.cat, it.kind) : ""; return u ? `<img class="mk-th px" style="image-rendering:auto" src="${u}" alt="">` : ""; }
   if (it.cat === "hat" || it.cat === "items" || (it.cat === "profile" && !it.kind.startsWith("bg") && !it.kind.startsWith("fr-") && it.img))
     return it.img ? `<span class="mk-gl${it.ench ? " ench" : ""}" style="--m:url(${esc(it.img)})"><img class="mk-th px" src="${esc(it.img)}" alt=""></span>` : "";
   if (it.kind.startsWith("bg")) return `<i class="mk-sw" style="background:${esc(bgCss(it))}"></i>`;
@@ -264,8 +267,8 @@ function coinsLabel() {
   ["#mk-coins", "#mk-coins2"].forEach(s => { const e = q(s); if (e) e.innerHTML = h; });
 }
 const owned = id => { const u = D.me(); return !!u && Array.isArray(u.inv) && u.inv.includes(id); };
-const worn = it => { const u = D.me(), e = (u && u.equip) || {}; return it.cat === "hat" ? e.hat === it.id : it.kind.startsWith("bg") ? e.bg === it.id : it.kind.startsWith("fr") ? e.frame === it.id : false; };
-const wearable = it => it.cat === "hat" || (it.cat === "profile" && (it.kind.startsWith("bg") || it.kind.startsWith("fr-")));
+const worn = it => { const u = D.me(), e = (u && u.equip) || {}; return it.cat === "hat" ? e.hat === it.id : it.kind.startsWith("bg") ? e.bg === it.id : it.kind.startsWith("fr") ? e.frame === it.id : it.cat === "pets" ? e.pet === it.id : it.cat === "furn" ? Array.isArray(e.room) && e.room.includes(it.id) : false; };
+const wearable = it => it.cat === "hat" || it.cat === "pets" || it.cat === "furn" || (it.cat === "profile" && (it.kind.startsWith("bg") || it.kind.startsWith("fr-")));
 
 function renderBook() {
   if (!openCat) return;
@@ -306,6 +309,7 @@ function stage(type) {
   s.dataset.t = type; s.textContent = "";
   if (type === "hat") { s.innerHTML = `<canvas class="mk-av" width="300" height="340"></canvas><small class="mk-tip">Toca al avatar para cambiar de animación</small>`; ap = avatarPreview(s.querySelector("canvas")); }
   else if (type === "3d") { s.innerHTML = `<canvas class="mk-3d"></canvas><small class="mk-tip">Arrastra para girarlo</small>`; v3 = viewer3d(s.querySelector("canvas")); }
+  else if (type === "room") { s.innerHTML = `<canvas class="mk-3d"></canvas><small class="mk-tip">Arrastra para girarlo</small>`; }
   else if (type === "none") s.innerHTML = `<p class="mk-empty">Pasa el cursor por un artículo para verlo,<br>o selecciónalo para fijarlo.</p>`;
   return s;
 }
@@ -331,6 +335,9 @@ async function showPanel() {
   } else if (it.cat === "items") {
     stage("3d"); const [img, obj] = await Promise.all([imgOf(it), it.model ? modelOf(it.id) : null]); if (tok !== panelTok || !v3) return;
     v3.set({ img, bb: obj, ench: it.ench });
+  } else if (it.cat === "pets" || it.cat === "furn") {
+    stopStage(); const s = q("#mk-stage"); s.dataset.t = "room"; s.innerHTML = `<canvas class="mk-3d"></canvas><small class="mk-tip">Arrastra para girarlo</small>`;
+    if (isModel(it)) ap = modelPreview(s.querySelector("canvas"), it.cat, it.kind);
   } else if (it.cat === "profile") {
     stopStage(); const s = q("#mk-stage"); s.dataset.t = "p";
     const av = esc(u ? u.avatar : "https://minotar.net/helm/MHF_Steve/64.png");
@@ -361,8 +368,10 @@ async function onBuy() {
 }
 export async function equip(it, on) {
   const u = D.me(); if (!u || !it) return false;
-  const slot = it.cat === "hat" ? "hat" : it.kind.startsWith("bg") ? "bg" : it.kind.startsWith("fr-") ? "frame" : null; if (!slot) return false;
-  const eq = { ...(u.equip || {}), [slot]: on ? it.id : null };
+  const slot = it.cat === "hat" ? "hat" : it.cat === "pets" ? "pet" : it.cat === "furn" ? "room" : it.kind.startsWith("bg") ? "bg" : it.kind.startsWith("fr-") ? "frame" : null; if (!slot) return false;
+  const eq = { ...(u.equip || {}) };
+  if (slot === "room") { const cur = Array.isArray(eq.room) ? eq.room.filter(x => x !== it.id) : []; if (on) { if (cur.length >= 10) return false; cur.push(it.id); } eq.room = cur; }
+  else eq[slot] = on ? it.id : null;
   try { await D.fb.updateDoc(D.fb.doc(D.db, "players", u.uid), { equip: eq }); } catch (e) { console.warn(e); return false; }
   D.patchMe({ equip: eq }); D.onChange(); return true;
 }
@@ -407,7 +416,7 @@ function readImg(file, max) {
 }
 function editItem(it) {
   const isNew = !it, cat = it ? it.cat : openCat;
-  const base = it || { id: "", name: "", cat, kind: cat === "profile" ? (tab === "bg" ? "bg-solid" : "fr-solid") : "", price: 100, hidden: false, img: "", w: 16, x: 0, y: 1, c1: "#e0402a", c2: "#2a6fe0", game: "end", desc: "", model: false };
+  const base = it || { id: "", name: "", cat, kind: cat === "profile" ? (tab === "bg" ? "bg-solid" : "fr-solid") : cat === "pets" ? "cat" : cat === "furn" ? "bed" : "", price: 100, hidden: false, img: "", w: 16, x: 0, y: 1, c1: "#e0402a", c2: "#2a6fe0", game: "end", desc: "", model: false };
   let img = base.img, obj = null, dropModel = false;
   const m = modal(`
     <h3>${isNew ? "Nuevo artículo" : "Editar artículo"}</h3>
@@ -415,6 +424,7 @@ function editItem(it) {
       <label>Nombre<input name="name" maxlength="40" value="${esc(base.name)}" required></label>
       <label>Precio (monedas)<input name="price" type="number" min="0" max="1000000" step="1" value="${base.price}"></label>
       <label>Descripción (opcional)<input name="desc" maxlength="120" value="${esc(base.desc)}"></label>
+      ${cat === "pets" || cat === "furn" ? `<label>Modelo<select name="kind">${(cat === "pets" ? petKinds() : furnKinds()).map(([k, v]) => `<option value="${k}" ${base.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>` : ""}
       ${cat === "profile" ? `<label>Tipo<select name="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${base.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>` : ""}
       <div class="mk-row" data-f="colors"><label>Color 1<input name="c1" type="color" value="${esc(base.c1)}"></label><label data-f="c2">Color 2<input name="c2" type="color" value="${esc(base.c2)}"></label></div>
       <label data-f="game">Fondo del minijuego<select name="game">${Object.entries(GAMEBG).map(([k, v]) => `<option value="${k}" ${base.game === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>
@@ -433,14 +443,14 @@ function editItem(it) {
   let fap = null;
   m._done = () => { if (fap) fap.stop(); };
   const vis = () => {
-    const k = cat === "profile" ? f.kind.value : "";
+    const k = cat === "profile" ? f.kind.value : "", rm = cat === "pets" || cat === "furn";
     const show = (s, on) => { const e = $f(`[data-f="${s}"]`); if (e) e.hidden = !on; };
     show("colors", cat === "profile" && ["bg-solid", "bg-grad", "fr-solid", "fr-neon"].includes(k));
-    show("c2", k === "bg-grad"); show("game", k === "bg-game"); show("img", cat !== "profile" || k === "bg-img");
+    show("c2", k === "bg-grad"); show("game", k === "bg-game"); show("img", rm ? false : (cat !== "profile" || k === "bg-img"));
     show("hat", cat === "hat"); show("hatprev", cat === "hat"); show("model", cat === "items"); show("ench", cat === "items" || cat === "hat");
     show("rmmodel", cat === "items" && base.model);
   };
-  vis(); if (cat === "profile") f.kind.onchange = vis;
+  vis(); if (f.kind) f.kind.onchange = vis;
   const updPrev = async () => {
     if (cat !== "hat") return;
     if (!fap) fap = avatarPreview($f("[data-f=hatprev] canvas"));
@@ -460,8 +470,8 @@ function editItem(it) {
     const name = f.name.value.trim(), pr = Math.floor(Number(f.price.value));
     if (!name) return ferr.textContent = "Ponle un nombre.";
     if (!(pr >= 0)) return ferr.textContent = "El precio no es válido.";
-    const kind = cat === "profile" ? f.kind.value : "";
-    if (cat !== "profile" && !img) return ferr.textContent = "Sube una imagen.";
+    const kind = cat === "profile" || cat === "pets" || cat === "furn" ? f.kind.value : "";
+    if (cat !== "profile" && cat !== "pets" && cat !== "furn" && !img) return ferr.textContent = "Sube una imagen.";
     if (kind === "bg-img" && !img) return ferr.textContent = "Sube la imagen del fondo.";
     const all = [...shop.values()].filter(i => i.cat === cat), data = { name, cat, price: pr, hidden: f.hidden.checked, order: it ? it.order : (all.length ? Math.max(...all.map(i => i.order)) + 10 : 0) };
     if (f.desc.value.trim()) data.desc = f.desc.value.trim();
@@ -526,8 +536,11 @@ function seedAll() {
   out.push({ id: "it_emerald", name: "Esmeralda", cat: "items", price: 250, img: sprite(gem, { a: "#0b6b2e", b: "#17c45a", c: "#6dea97", d: "#d5ffe3" }), desc: "La moneda de los aldeanos." });
   out.push({ id: "it_gold", name: "Lingote de Oro", cat: "items", price: 150, img: sprite(["...oooooooooo.", "..oYYYYYYYYYYo", ".oYYwwYYYYYYYo", "oooooooooooooo", "oYYYYYYYYYYYYo", "oYwYYYYYYYYYYo", "oOOOOOOOOOOOOo", "oooooooooooooo"], { o: "#8a5a0a", Y: "#f5c93a", w: "#fff3b0", O: "#d9a21c" }), desc: "Pesado y dorado." });
   out.push({ id: "it_heart", name: "Corazón", cat: "items", price: 80, img: sprite(["..rrr.rrr..", ".rrwrrrrrr.", "rrwrrrrrrrr", "rrrrrrrrrrr", "rrrrrrrrrrd", ".rrrrrrrrd.", "..rrrrrdd..", "...rrrdd...", "....rdd....", ".....d....."], { r: "#e5233b", w: "#ff9aa6", d: "#a3162a" }), desc: "Una vida extra." });
+  FURN_NAMES.forEach(([k, n], i) => out.push({ id: "fu_" + k, name: n, cat: "furn", kind: k, price: 120 + i * 10, hidden: true, desc: "Mueble de prueba (solo administrador)." }));
+  PET_NAMES.forEach(([k, n], i) => out.push({ id: "pt_" + k, name: n, cat: "pets", kind: k, price: 200 + i * 50, hidden: true, desc: "Mascota de prueba (solo administrador)." }));
   return out;
 }
+const FURN_NAMES = furnKinds(), PET_NAMES = petKinds();
 async function seed() {
   if (!confirm("Esto agrega los artículos iniciales (sombreros, fondos, marcos e items) que todavía no existan. ¿Continuar?")) return;
   const fb = D.fb, btn = q('[data-a="seed"]'); if (btn) btn.disabled = true;
@@ -536,7 +549,7 @@ async function seed() {
     let n = 0;
     for (const [i, it] of seedAll().entries()) {
       if (shop.has(it.id)) continue;
-      const { id, ...d } = it, o = { ...d, hidden: false, order: i * 10 }; if (o.cat !== "hat") { delete o.w; delete o.x; delete o.y; }
+      const { id, ...d } = it, o = { ...d, hidden: d.hidden === true, order: i * 10 }; if (o.cat !== "hat") { delete o.w; delete o.x; delete o.y; }
       await fb.setDoc(fb.doc(D.db, "shop", id), o); n++;
     }
     await loadShop(true); renderBook(); alert(n ? `Listo: ${n} artículos agregados.` : "El catálogo inicial ya estaba cargado.");
@@ -549,7 +562,7 @@ export async function inventory(host, { inv = [], equip: eq = {}, mine = false, 
   await loadShop();
   const list = (Array.isArray(inv) ? inv : []).map(id => shop.get(id)).filter(Boolean);
   if (!list.length) { host.innerHTML = `<p class="muted">${mine ? "Aún no has comprado nada. Visita el Mercado." : "Aún no tiene artículos."}</p>`; return; }
-  const order = { items: 0, hat: 1, profile: 2 }, wornOf = it => (it.cat === "hat" && eq.hat === it.id) || (it.cat === "profile" && (eq.bg === it.id || eq.frame === it.id));
+  const order = { items: 0, hat: 1, profile: 2, pets: 3, furn: 4 }, wornOf = it => (it.cat === "hat" && eq.hat === it.id) || (it.cat === "pets" && eq.pet === it.id) || (it.cat === "furn" && Array.isArray(eq.room) && eq.room.includes(it.id)) || (it.cat === "profile" && (eq.bg === it.id || eq.frame === it.id));
   list.sort((a, b) => (order[a.cat] ?? 9) - (order[b.cat] ?? 9) || byOrder(a, b));
   host.innerHTML = `<div class="mk-inv">${list.map(it => `<button class="mk-slot${wornOf(it) ? " worn" : ""}" type="button" data-id="${esc(it.id)}" title="${esc(it.name)}"><span class="mk-tw">${thumb(it)}</span><b>${esc(it.name)}</b></button>`).join("")}</div>`;
   host.onclick = e => { const b = e.target.closest(".mk-slot"); if (b) inspect(list, list.findIndex(x => x.id === b.dataset.id), mine, host, { inv, equip: eq, mine, name }); };
@@ -580,7 +593,7 @@ async function inspect(list, idx, mine, host, st) {
   const go = d => { i = (i + d + list.length) % list.length; show(d); };
   async function show(dir = 0) {
     const it = list[i], my = ++tok, u = D.me(), eq = (mine && u && u.equip) || st.equip || {};
-    const on = wearable(it) && ((it.cat === "hat" && eq.hat === it.id) || (it.cat === "profile" && (eq.bg === it.id || eq.frame === it.id)));
+    const on = wearable(it) && ((it.cat === "hat" && eq.hat === it.id) || (it.cat === "pets" && eq.pet === it.id) || (it.cat === "furn" && Array.isArray(eq.room) && eq.room.includes(it.id)) || (it.cat === "profile" && (eq.bg === it.id || eq.frame === it.id)));
     const stg = m.querySelector(".mk-ist"), cap = m.querySelector(".mk-icap");
     if (v) { v.stop(); v = null; }
     stg.style.setProperty("--dir", dir || 1); stg.classList.remove("sw"); void stg.offsetWidth; stg.classList.add("sw");
@@ -592,6 +605,9 @@ async function inspect(list, idx, mine, host, st) {
       eb.disabled = true; const turnOn = eb.textContent === "EQUIPAR", ok = await equip(it, turnOn);
       if (ok) { eb.textContent = turnOn ? "QUITAR" : "EQUIPAR"; eb.disabled = false; if (host.isConnected) inventory(host, { ...st, equip: D.me().equip || {} }); } else { m.querySelector("#mk-vm").textContent = "No se pudo guardar."; eb.disabled = false; }
     };
+    if (it.cat === "pets" || it.cat === "furn") {
+      stg.innerHTML = `<canvas class="mk-3d"></canvas>`; v = isModel(it) ? modelPreview(stg.firstChild, it.cat, it.kind) : null; return;
+    }
     if (it.kind && it.kind !== "bg-img" && !it.img) {
       stg.innerHTML = `<div class="mk-vsw"></div>`; stg.firstChild.style.background = it.kind.startsWith("bg") ? bgCss(it) : "";
       if (it.kind.startsWith("fr-")) { const uu = D.me(); stg.firstChild.innerHTML = `<img class="px fr ${it.kind}" style="--fc:${esc(it.c1)}" src="${esc(uu ? uu.avatar : "https://minotar.net/helm/MHF_Steve/64.png")}" alt="">`; }
@@ -607,7 +623,13 @@ async function inspect(list, idx, mine, host, st) {
 }
 
 /* ---------- API ---------- */
+/* qué muebles y mascota tiene puestos un perfil (para la habitación) */
+export function roomOf(equip, test = false) {
+  const e = equip || {}, f = (Array.isArray(e.room) ? e.room : []).map(id => shop.get(id)).filter(it => it && it.cat === "furn" && FURN[it.kind]).map(it => it.kind), pi = shop.get(e.pet), pk = pi && pi.cat === "pets" && PETS[pi.kind] ? pi.kind : null;
+  return { furn: f, pet: pk };
+}
 export const Mercado = {
+  roomOf,
   init(deps) { D = deps; root = document.querySelector("#mk"); },
   async enter() {
     if (!root || !D) return;

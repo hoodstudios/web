@@ -346,22 +346,25 @@ export function createAvatar(canvas, { skinSources = [], slim = false, name = "a
   raf = requestAnimationFrame(frame);
 
   /* Descarga solo el avatar (PNG transparente, sin fondo ni sombra). */
-  function download() {
-    if (!img) return;
-    try {
-      const cv = renderAvatar(img, { size: 512, style: "drop", depth: 50, arms: slim ? "slim" : "auto", hat: true, flip: false, fill: 80,
-        shadow: false, bg: "none", c1: "#f7b41e", c2: "#000000", radius: 0 });
-      cv.toBlob(b => {
-        if (!b) return;
-        const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = name + "-avatar.png"; a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-      });
-    } catch (e) { console.warn("No se pudo exportar el avatar:", e); }
-  }
+  function download() { exportAvatar(img, slim, name); }
 
   return {
     destroy() { alive = false; cancelAnimationFrame(raf); canvas.removeEventListener("pointerdown", onDown); canvas.removeEventListener("pointermove", onMove); },
     addFurniture(fn) { furniture.push(fn); },
     download
   };
+}
+
+/* Descarga el avatar suelto (PNG transparente). También lo usa la habitación isométrica. */
+export function exportAvatar(img, slim, name) {
+  if (!img) return;
+  try {
+    const cv = renderAvatar(img, { size: 512, style: "drop", depth: 50, arms: slim ? "slim" : "auto", hat: true, flip: false, fill: 80,
+      shadow: false, bg: "none", c1: "#f7b41e", c2: "#000000", radius: 0 });
+    cv.toBlob(b => {
+      if (!b) return;
+      const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = (name || "avatar") + "-avatar.png"; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    });
+  } catch (e) { console.warn("No se pudo exportar el avatar:", e); }
 }

@@ -23,6 +23,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app), db = getFirestore(app);
 
 import { createAvatar, createFigureSet, loadSkin, ANIMS } from "./avatar.js";
+import { createRoom, TEST_FURN, TEST_PET } from "./habitacion.js";
 import { Mercado } from "./mercado.js";
 import { Cofres } from "./cofres.js";
 import { Monedas } from "./monedas.js";
@@ -661,7 +662,15 @@ async function renderProfile(name) {
     Mercado.inventory($("#invbox"), { inv: pinv, equip: pe, mine, name: p.name });
     const pcos = await Mercado.hatCos(pe.hat);
     if (tok !== profTok) return;
-    avatarFx = createAvatar($("#acv"), { skinSources: skinSources(p.name, p.avatar, md), slim: !!(md && md.slim), name: p.name, cos: pcos });
+    const ro = Mercado.roomOf(pe), adminTest = mine && Mercado.isAdmin(), aopt = { skinSources: skinSources(p.name, p.avatar, md), slim: !!(md && md.slim), name: p.name, cos: pcos };
+    try {   // habitación isométrica 3D (avatar 2D); si no hay WebGL, queda la habitación 2D de siempre
+      const cvs = $("#acv"); cvs.style.imageRendering = "auto";
+      avatarFx = createRoom(cvs, { ...aopt, furn: adminTest && !ro.furn.length ? TEST_FURN : ro.furn, pet: ro.pet || (adminTest ? TEST_PET : null) });
+    } catch (e) {
+      console.warn("Habitación 3D no disponible:", e); avatarFx = null;
+      const old = $("#acv"), cl = document.createElement("canvas"); cl.id = "acv"; old.replaceWith(cl);
+      avatarFx = createAvatar(cl, aopt);
+    }
     $("#avatar-download").onclick = () => avatarFx.download();
     if (mine) {
       justGoogle = false;
