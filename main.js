@@ -791,7 +791,7 @@ const Mine = (() => {
  * Controles: espacio / ↑ / W / toque = saltar (mantén para saltar más alto, con límite)
  *            ↓ / Shift / S / deslizar hacia abajo = caer más rápido
  * Biomas (por puntaje): Desierto → Templo → Aldea → Desierto rojo → Mesetas → Mineshaft (cueva).
- * Entrar a un bioma da XP (más lejos = más XP); en la Mineshaft la velocidad sube sin tope.
+ * Entrar a un bioma da XP (más lejos = más XP); la Mineshaft empieza a los 35 000 puntos. Saltar sobre una flor da +10 XP.
  * Monedas: aparecen al azar, máximo 25 por día (ventana de 24 h desde la primera). XP y monedas se guardan en players/<uid>. */
 /* Resolución interna del canvas de los minijuegos: pantalla completa a 2× son millones de píxeles por cuadro (lento sin GPU, p. ej. Brave sin aceleración).
  * Limitamos a ~1,6 M de píxeles: se ve igual de nítido (el canvas se escala por CSS) y el juego mantiene 60 FPS. */
@@ -800,11 +800,11 @@ const Game = (() => {
   const cv = $("#cv"), c = cv.getContext("2d", { alpha: false }), S = 36, B = 24, CB = 32, MAXT = 3, COIN_MAX = 25, DAY = 864e5;
   const BIO = [
     { at: 0,    name: "Desierto",            xp: 0 },
-    { at: 5000,  name: "Templo del desierto", xp: 40 },
-    { at: 15000, name: "Aldea del desierto",  xp: 80 },
-    { at: 25000, name: "Desierto rojo",       xp: 130 },
-    { at: 35000, name: "Mesetas",             xp: 190 },
-    { at: 50000, name: "Mineshaft",           xp: 260 }
+    { at: 4000,  name: "Templo del desierto", xp: 40 },
+    { at: 10000, name: "Aldea del desierto",  xp: 80 },
+    { at: 17000, name: "Desierto rojo",       xp: 130 },
+    { at: 25000, name: "Mesetas",             xp: 190 },
+    { at: 35000, name: "Mineshaft",           xp: 260 }
   ], CAVE = 5, CAVE_AT = BIO[CAVE].at;
   /* Velocidad: de 5 a 10 en los primeros 6 000 puntos; después sube sin parar, en línea recta y suave */
   const SPD_AT = 6000;                                        // la curva de velocidad es independiente de los biomas
@@ -825,6 +825,34 @@ const Game = (() => {
   let best = 0, bestKey = "";
   let raf = 0, last = 0, st = "idle", s, figs = null, figKey = "", figTok = 0, aT = 0, aAir = false, overAt = 0, py0 = null;
   const rnd = (a, b) => a + Math.random() * (b - a);
+  /* ---- Sonido (sintetizado, sin archivos). M = silenciar ---- */
+  let AC = null, muted = false; try { muted = localStorage.getItem("hood_runner_mute") === "1"; } catch (e) { /* sin almacenamiento */ }
+  const ac = () => { if (AC === null) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = false; } } if (AC && AC.state === "suspended") AC.resume(); return AC; };
+  function tone(f, d, type = "square", vol = .04, f2 = 0, delay = 0) {
+    if (muted) return; const a = ac(); if (!a) return; const t = a.currentTime + delay, o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + d); o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + d + .03);
+  }
+  function noise(d, vol = .05, fq = 1500, delay = 0) {
+    if (muted) return; const a = ac(); if (!a) return; const t = a.currentTime + delay, n = Math.max(1, Math.floor(a.sampleRate * d)), b = a.createBuffer(1, n, a.sampleRate), ch = b.getChannelData(0);
+    for (let i = 0; i < n; i++) ch[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const src = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain(); fl.type = "lowpass"; fl.frequency.value = fq; src.buffer = b;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + d); src.connect(fl); fl.connect(g); g.connect(a.destination); src.start(t);
+  }
+  const snd = {
+    jump: () => tone(300, .12, "square", .03, 640), dj: () => { tone(480, .13, "square", .03, 980); tone(1300, .05, "triangle", .02, 0, .08); },
+    land: () => noise(.07, .05, 520), coin: () => { tone(988, .08, "square", .035); tone(1319, .16, "square", .035, 0, .07); },
+    totem: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, .13, "triangle", .05, 0, i * .07)),
+    save: () => { tone(200, .3, "sawtooth", .05, 880); noise(.18, .05, 3000); [880, 1175].forEach((f, i) => tone(f, .14, "triangle", .04, 0, .12 + i * .08)); },
+    die: () => { tone(420, .55, "sawtooth", .06, 60); noise(.35, .06, 900); },
+    flower: () => { tone(170, .3, "sine", .09, 900); tone(1200, .12, "triangle", .03, 1900, .14); tone(1600, .1, "triangle", .025, 0, .22); },
+    tnt: () => { noise(.55, .13, 700); tone(90, .45, "sine", .13, 32); },
+    biome: () => { [392, 494, 587].forEach((f, i) => tone(f, .18, "triangle", .05, 0, i * .1)); tone(784, .4, "triangle", .05, 0, .32); },
+    lvl: () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, .12, "square", .035, 0, i * .06)),
+    record: () => [659, 784, 988, 1319].forEach((f, i) => tone(f, .14, "triangle", .05, 0, i * .08)),
+    orb: () => tone(760 + Math.random() * 520, .07, "sine", .022), arrow: () => noise(.09, .035, 4500), husk: () => tone(120, .22, "sawtooth", .03, 70),
+    flap: () => noise(.05, .018, 3200)
+  };
   function fit() {                                           // el lienzo ocupa toda la ventana (altura lógica ≈380, ancho mínimo 480)
     const vw = innerWidth, vh = innerHeight; SC = Math.min(vh / 380, vw / 480);
     const nw = Math.ceil(vw / SC), nh = Math.ceil(vh / SC), ngy = Math.round(nh * .68), d = ngy - GY;
@@ -840,22 +868,24 @@ const Game = (() => {
 
   /* ---- Sprites pixel art (estilo Minecraft Java): cada píxel del dibujo = 3 unidades del mundo ---- */
   const mk = (rows, pal, px = 3) => {
-    const w = Math.max(...rows.map(r => r.length)), cn = document.createElement("canvas"); cn.width = w * px; cn.height = rows.length * px;
-    const g = cn.getContext("2d"); rows.forEach((r, y) => [...r].forEach((ch, x) => { if (pal[ch]) { g.fillStyle = pal[ch]; g.fillRect(x * px, y * px, px, px); } })); return cn;
+    const [pw, ph] = Array.isArray(px) ? px : [px, px];
+    const w = Math.max(...rows.map(r => r.length)), cn = document.createElement("canvas"); cn.width = w * pw; cn.height = rows.length * ph;
+    const g = cn.getContext("2d"); rows.forEach((r, y) => [...r].forEach((ch, x) => { if (pal[ch]) { g.fillStyle = pal[ch]; g.fillRect(x * pw, y * ph, pw, ph); } })); return cn;
   };
   const cartRows = ["RRRRRRRRRR", "IGGGGGGGGI", "IGGGGGGGGI", "IGGGGGGGGI", "IIIIIIIIII", ".KK....KK.", ".KK....KK."];
   const cartPal = { R: "#b9b9c2", I: "#8e8e96", G: "#4a4a52", K: "#222228", W: "#f1f1f1", T: "#c8321e", D: "#8f1f12" };
   const SP = {
-    husk: mk(["HHHHHH", "HEHHEH", "HHHHHH", "HHmmHH", "CCCCCC", "HCCCCH", "DCCCCD", "DCCCCD", "PPPPPP", "PPQQPP", "PPQQPP", "BBQQBB"],
-      { H: "#9b8860", E: "#2b2218", m: "#6e5d3c", C: "#5f7f86", D: "#4d6a70", P: "#5a4a3a", Q: "#3d3126", B: "#2f261d" }, 4),
-    parched: mk(["KKKKKK", "KEKKEK", "KKKKKK", "KTTTTK", "SSRRSS", "S.RR.S", "S.SS.S", "S.RR.S", "..SS..", "SS..SS", "SS..SS", "TT..TT"],
-      { K: "#ddd4b2", E: "#2a2418", R: "#b9b08c", S: "#cfc6a2", T: "#8d855f" }, 4),
-    camel: mk(["................", "CCC.............", "CECN............", "CCCNN....DDD....", "..CNN...DDDDD...", "...NNCCCCCCCCCCT", "...CCCCCCCCCCCCT", "...CCCCCCCCCCCC.", "...CCCCCCCCCCCC.", "...LL.LL..LL.LL.", "...LL.LL..LL.LL.", "...LL.LL..LL.LL."],
-      { C: "#cfa75a", D: "#b88d42", L: "#a47a36", N: "#cfa75a", E: "#2a2118", T: "#b88d42" }, 5),
+    /* Mobs en estilo "chibi" (cabeza grande), de la altura del avatar (~39 px); el camello es más grande y ancho a propósito */
+    husk: mk(["..YYYYYYYYy.", "..YYYHHHYYy.", "..HHHHHHHHh.", "..HKKHHKKHh.", "..HHhhhhHHh.", "..hhHhhHhhh.", ".AAAYYBBBYy.", "AAAAYYBBBYy.", "aaaaYyBBBYy.", "...DDDDDDDD.", "...DDddDDdd.", "...DDddDDdd.", "...FFddFFdd."],
+      { Y: "#e3d2a0", y: "#c4b078", H: "#6e6454", h: "#4d4538", K: "#0a0a0a", A: "#6e6454", a: "#4d4538", B: "#6e6454", D: "#43361f", d: "#2e2514", F: "#6e6454" }, 3),
+    parched: mk(["..GGGGGGGGg.", "..GGGGGGGGg.", "..GKKGGKKGg.", "..GKKGGKKGg.", "..GGGNNGGGg.", "..GKKKKKKGg.", "..GGGGGGGGg.", "..ggGGGGggg.", "BbRRGGGGRRg.", "BbGGGGGGGGg.", "B.RRGGGGRRg.", "...GG..GGg..", "...GG..GGg.."],
+      { G: "#d8d8d8", g: "#b4b4b4", K: "#111111", N: "#555555", R: "#4b4b4b", B: "#6b4423", b: "#9a9a9a" }, 3),
+    camel: mk(["........CC........", "CCCCCRCCCc........", "CKKKWRCcCc........", "KKKKKRCccc........", "CCCCcRCccc........", "....CRCccc........", "....CRCccc........", "....CCCcccGCCGCCc.", "....CCCcRRRRRRRCCC", "....CCCcRRGRRRRCCC", "....CCCcRRRRRRRCCc", "....CCCcccCCCCCCCc", "....CCCCCCCCCCCCCc", "....CCc.Cc..CCc.Cc", "....CCc.Cc..CCc.Cc", "....CCc.Cc..CCc.Cc", "....GGc.GG..GGc.GG"],
+      { C: "#e0b25c", c: "#c0985a", R: "#a0522d", K: "#5d4521", W: "#0a0a0a", G: "#7a7266" }, [6, 5]),
     cart: mk(cartRows, cartPal, 4),
     tnt: mk(["RRRRRRRRRR", "WWWWWWWWWW", "WKWKKWKWKW", "RRRRRRRRRR", ...cartRows], { ...cartPal, R: "#d23a22" }, 4),
-    bat0: mk(["B.......B", "BB.B.B.BB", "BBBBBBBBB", ".BBBBBBB.", "..BrBrB.."], { B: "#3a2f45", r: "#e04a4a" }, 4),
-    bat1: mk(["..BBBBB..", ".BBrBrBB.", "BBBBBBBBB", "B.B...B.B"], { B: "#3a2f45", r: "#e04a4a" }, 4),
+    bat0: mk([".DD........DD.", "DPPD......DPPD", "DPPDDDDDDDDPPD", ".DDDDDDDDDDDD.", "..DDKEEKDDDD..", "..DDDDDDDDDD..", "...MMMMMMMM...", "....MMMMMM...."], { D: "#4a3f38", P: "#8a6485", K: "#111111", E: "#9a6fa0", M: "#6a5b50" }, 3),
+    bat1: mk(["..............", ".DD........DD.", "DPPDDDDDDDDPPD", "DPPDDDDDDDDPPD", "..DDKEEKDDDD..", "..DDDDDDDDDD..", "...MMMMMMMM...", "....MMMMMM...."], { D: "#4a3f38", P: "#8a6485", K: "#111111", E: "#9a6fa0", M: "#6a5b50" }, 3),
     coin: mk([".OOOO.", "OYYYYO", "OYwYYO", "OYYYYO", "OYYYYO", ".OOOO."], { O: "#a8730f", Y: "#f5c93a", w: "#fff3b0" })
   };
 
@@ -864,11 +894,16 @@ const Game = (() => {
   const mixc = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
   const rgb = (a, al = 1) => `rgba(${a[0]},${a[1]},${a[2]},${al})`;
   const hs = (n, sd) => { const x = Math.sin(n * 127.1 + sd * 311.7) * 43758.5453; return x - Math.floor(x); };   // azar repetible por celda
-  const P_A = { sky: ["#27356b", "#c06a4c", "#f6bd6e"].map(hx), hz: hx("#f6bd6e"), sun: hx("#fff0b8"), sunA: 1, grd: hx("#d9ca9a"), dune: ["#dcae63", "#cc9849", "#b9843c"].map(hx), cac: hx("#8d7c52") };
-  const P_R = { sky: ["#3a1f4a", "#c9573a", "#f09a58"].map(hx), hz: hx("#f09a58"), sun: hx("#ffd6a0"), sunA: 1, grd: hx("#c98a5a"), dune: ["#c8693f", "#b0552f", "#964426"].map(hx), cac: hx("#8a5b46") };
-  const P_M = { sky: ["#2a0d14", "#8f3a22", "#e8894a"].map(hx), hz: hx("#e8894a"), sun: hx("#ffb479"), sunA: 1, grd: hx("#b5541c"), rock: ["#a9573b", "#8c4531", "#74372a"].map(hx) };
-  const P_C = { sky: ["#07070b", "#15131b", "#2b2530"].map(hx), hz: hx("#2b2530"), sun: hx("#2b2530"), sunA: 0, grd: hx("#3d3b42") };
-  const PAL = [P_A, P_A, P_A, P_R, P_M, P_C], SYK = [.3, .3, .32, .36, .46, .46];
+  /* Cielo por estructura: Desierto = día · Pirámide = atardecer · Aldea = noche · Desierto rojo = día · Mesetas = atardecer · Mineshaft = oscuridad.
+   * sky = 3 colores (arriba, medio, horizonte) · hz = bruma · sun = sol/luna · sunK = altura (0 arriba … 1 horizonte) · st = estrellas · ov = tinte sobre el suelo */
+  const P_DAY = { sky: ["#5b9bff", "#8fbcff", "#cfe6ff"].map(hx), hz: hx("#cfe6ff"), sun: hx("#fff7c2"), sunA: 1, sunK: .2, st: 0, hzm: [.3, .16, .05], grd: hx("#dcc283"), dune: ["#e8c47c", "#dbb262", "#cc9f50"].map(hx), cac: hx("#8d7c52"), ov: [255, 255, 255, 0] };
+  const P_SUN = { sky: ["#3a2a6b", "#c8566a", "#ffab5e"].map(hx), hz: hx("#ffab5e"), sun: hx("#ffd27a"), sunA: 1, sunK: .5, st: 0, hzm: [.55, .3, .1], grd: hx("#c99a5c"), dune: ["#dba066", "#c88a52", "#b3753f"].map(hx), cac: hx("#8a6a4a"), ov: [255, 110, 50, .14] };
+  const P_NGT = { sky: ["#04061a", "#0a1233", "#1a2552"].map(hx), hz: hx("#1a2552"), sun: hx("#e8eeff"), sunA: 1, sunK: .22, st: 1, hzm: [.35, .2, .06], grd: hx("#6b6a86"), dune: ["#6b6a88", "#59587a", "#47466a"].map(hx), cac: hx("#3c3f5e"), ov: [4, 8, 40, .48] };
+  const P_RED = { sky: ["#5aa0ff", "#9fc6ff", "#d8e6ff"].map(hx), hz: hx("#d8e6ff"), sun: hx("#fff3c0"), sunA: 1, sunK: .22, st: 0, hzm: [.28, .15, .05], grd: hx("#c98a5a"), dune: ["#d17c4c", "#bc6538", "#a85530"].map(hx), cac: hx("#8a5b46"), ov: [255, 255, 255, 0] };
+  const P_M = { sky: ["#552a62", "#d2504c", "#ffa352"].map(hx), hz: hx("#ffa352"), sun: hx("#ffc07a"), sunA: 1, sunK: .52, st: 0, hzm: [.5, .28, .1], grd: hx("#b5541c"), rock: ["#a9573b", "#8c4531", "#74372a"].map(hx), ov: [255, 100, 40, .16] };
+  const P_C = { sky: ["#07070b", "#15131b", "#2b2530"].map(hx), hz: hx("#2b2530"), sun: hx("#2b2530"), sunA: 0, sunK: .46, st: 0, hzm: [.6, .3, .1], grd: hx("#3d3b42"), ov: [0, 0, 0, 0] };
+  const PAL = [P_DAY, P_SUN, P_NGT, P_RED, P_M, P_C];
+  const LMW = 1200;                                           // las estructuras de fondo aparecen UNA sola vez al entrar al bioma, fuera de la pantalla a la derecha
   const ridge = (x, base, amp, wl, sd) => base - amp * (.5 + .5 * (.6 * Math.sin(x / wl + sd) + .4 * Math.sin(x / (wl * .47) + sd * 2.3)));
   function saguaro(x, y, h, col, al) {
     const t = Math.max(3, Math.round(h * .2)), a = Math.round(h * .3);
@@ -891,20 +926,25 @@ const Game = (() => {
     c.globalAlpha = al; house(-46, 26, 20); house(-12, 24, 26); house(22, 28, 22);
     c.fillStyle = stone; c.fillRect(x + 60, y - 8, 12, 8); c.fillStyle = door; c.fillRect(x + 59, y - 19, 2, 11); c.fillRect(x + 71, y - 19, 2, 11); c.fillRect(x + 58, y - 21, 16, 3);
   }
-  function dunes(f, base, amp, wl, sd, col, al, cac, lm, hz) {
-    const sc = s.dist * f; c.globalAlpha = al; c.fillStyle = rgb(col);
-    c.beginPath(); c.moveTo(-8, GY + 2);
-    for (let x = -8; x <= W + 8; x += 8) c.lineTo(x, ridge(x + sc, base, amp, wl, sd));
-    c.lineTo(W + 8, GY + 2); c.closePath(); c.fill();
-    c.globalAlpha = al * .5; c.strokeStyle = "rgba(255,235,190,.5)"; c.lineWidth = 2; c.beginPath();
-    for (let x = -8; x <= W + 8; x += 8) { const y = ridge(x + sc, base, amp, wl, sd); x === -8 ? c.moveTo(x, y) : c.lineTo(x, y); } c.stroke();
+  /* Dunas hechas de bloques: cada columna mide `bs` píxeles y su altura es múltiplo de bloque (como el terreno de Minecraft) */
+  function dunes(f, base, amp, wl, sd, col, al, cac, lm, hz, bs) {
+    const sc = s.dist * f, k0 = Math.floor(sc / bs) - 1, k1 = Math.floor((sc + W) / bs) + 1;
+    const hOf = wx => GY - Math.round((GY - ridge(wx, base, amp, wl, sd)) / bs) * bs;
+    const flat = lm ? Math.floor(lm.at / bs) : 0, flatY = lm ? hOf(flat * bs + bs / 2) : 0;
+    const ty = k => lm && Math.abs(k - flat) * bs <= lm.r ? flatY : hOf(k * bs + bs / 2);          // bajo una estructura el terreno es plano
+    const top = rgb(mixc(col, [255, 240, 200], .2)), deep = rgb(mixc(col, [0, 0, 0], .16));
+    c.globalAlpha = al; c.fillStyle = rgb(col);
+    for (let k = k0; k <= k1; k++) { const x = Math.round(k * bs - sc), y = ty(k); c.fillRect(x, y, bs + 1, GY + 2 - y); }
+    c.fillStyle = top; for (let k = k0; k <= k1; k++) { const x = Math.round(k * bs - sc), y = ty(k); c.fillRect(x, y, bs + 1, Math.max(3, bs >> 2)); }
+    c.fillStyle = deep; for (let k = k0; k <= k1; k++) {
+      const x = Math.round(k * bs - sc), y = ty(k), h = hs(k, sd);
+      if (h > .72) c.fillRect(x, y + (bs >> 1), bs + 1, bs >> 1);                                  // bloques más oscuros (variación de textura)
+      const yp = ty(k - 1); if (yp > y) c.fillRect(x, y, 2, yp - y);                                // sombra en los escalones
+    }
     if (cac) { const C = 190; for (let k = Math.floor(sc / C) - 1; k <= Math.floor((sc + W) / C) + 1; k++) {
       if (hs(k, sd) < .45) continue; const wx = k * C + hs(k, sd + 1) * C * .7, x = Math.round(wx - sc);
-      if (x < -40 || x > W + 40) continue; saguaro(x, ridge(wx, base, amp, wl, sd) + 2, 14 + hs(k, sd + 2) * 16, cac, al * .9); } }
-    if (lm) for (let k = Math.floor(sc / lm.cell) - 1; k <= Math.floor((sc + W) / lm.cell) + 1; k++) {
-      if (hs(k, sd + 5) < lm.skip) continue; const wx = k * lm.cell + hs(k, sd + 6) * lm.cell * .5, x = Math.round(wx - sc);
-      if (x < -110 || x > W + 110) continue; lm.fn(x, ridge(wx, base, amp, wl, sd) + 2, al, hz);
-    }
+      if (x < -40 || x > W + 40) continue; saguaro(x, ty(Math.floor(wx / bs)) + 2, 14 + hs(k, sd + 2) * 16, cac, al * .9); } }
+    if (lm) { const x = Math.round(lm.at - sc); if (x > -120 && x < W + 120) lm.fn(x, flatY + 2, al, hz); }   // una sola estructura
     c.globalAlpha = 1;
   }
   function mesas(f, h0, h1, w0, w1, cell, sd, col, al) {
@@ -943,26 +983,39 @@ const Game = (() => {
   }
   function drawBG() {
     const bt = Math.min(5, Math.max(0, s.bt)), i = Math.floor(bt), j = Math.min(5, i + 1), f = bt - i, pa = PAL[i], pb = PAL[j];
-    const hz = mixc(pa.hz, pb.hz, f), sunC = mixc(pa.sun, pb.sun, f), sunA = pa.sunA + (pb.sunA - pa.sunA) * f;
-    const g = c.createLinearGradient(0, 0, 0, GY); [0, .55, 1].forEach((p, q) => g.addColorStop(p, rgb(mixc(pa.sky[q], pb.sky[q], f))));
-    c.fillStyle = g; c.fillRect(0, 0, W, H);
-    if (sunA > .01) {                                                                              // sol cuadrado con halo
-      const sx = Math.round(W * .74), sy = Math.round(GY * (SYK[i] + (SYK[j] - SYK[i]) * f));
-      const halo = c.createRadialGradient(sx, sy, 8, sx, sy, 130); halo.addColorStop(0, rgb(sunC, .45 * sunA)); halo.addColorStop(1, rgb(sunC, 0));
-      c.fillStyle = halo; c.fillRect(sx - 130, sy - 130, 260, 260); c.globalAlpha = sunA; c.fillStyle = rgb(sunC); c.fillRect(sx - 20, sy - 20, 40, 40); c.globalAlpha = 1;
+    const hz = mixc(pa.hz, pb.hz, f), sunC = mixc(pa.sun, pb.sun, f), sunA = pa.sunA + (pb.sunA - pa.sunA) * f, starA = pa.st + (pb.st - pa.st) * f;
+    const sky = [0, 1, 2].map(q => mixc(pa.sky[q], pb.sky[q], f));
+    for (let y = 0; y < GY + 12; y += 12) {                                                        // cielo en franjas (look de bloques)
+      const t = Math.min(1, y / GY), col = t < .55 ? mixc(sky[0], sky[1], t / .55) : mixc(sky[1], sky[2], (t - .55) / .45);
+      c.fillStyle = rgb(col); c.fillRect(0, y, W, 13);
+    }
+    c.fillStyle = rgb(sky[2]); c.fillRect(0, GY, W, H - GY);
+    if (starA > .02) {                                                                             // estrellas cuadradas que titilan
+      for (let q = 0; q < 46; q++) {
+        const sx = Math.round(hs(q, 21) * W), sy = Math.round(hs(q, 22) * GY * .62), tw = .55 + .45 * Math.sin(s.dist / 40 + q * 2.1);
+        c.fillStyle = `rgba(255,255,235,${(starA * tw).toFixed(2)})`; const z = q % 5 === 0 ? 3 : 2; c.fillRect(sx, sy, z, z);
+      }
+    }
+    if (sunA > .01) {                                                                              // sol / luna cuadrados con halo escalonado
+      const sx = Math.round(W * .74), sy = Math.round(GY * (pa.sunK + (pb.sunK - pa.sunK) * f)), moon = starA > .5;
+      [[64, .08], [48, .12], [34, .18]].forEach(([r, a]) => { c.fillStyle = rgb(sunC, a * sunA); c.fillRect(sx - r, sy - r, r * 2, r * 2); });
+      c.globalAlpha = sunA; c.fillStyle = rgb(sunC); c.fillRect(sx - 20, sy - 20, 40, 40);
+      if (moon) { c.fillStyle = "rgba(150,165,200,.55)"; c.fillRect(sx - 12, sy - 12, 8, 8); c.fillRect(sx + 4, sy + 2, 10, 8); c.fillRect(sx - 10, sy + 8, 6, 6); }
+      c.globalAlpha = 1;
     }
     const cl = i === 5 ? 0 : j === 5 ? 1 - f : 1;                                                  // nubes de bloques (no hay en la cueva)
-    if (cl > .01) { c.fillStyle = `rgba(255,${Math.round(255 - 55 * Math.min(1, bt / 3))},${Math.round(255 - 105 * Math.min(1, bt / 3))},${.15 * cl})`;
+    if (cl > .01) { const night = starA, warm = Math.min(1, (pa.ov[3] + (pb.ov[3] - pa.ov[3]) * f) * 5) * (1 - night);
+      c.fillStyle = `rgba(${Math.round(255 - 215 * night)},${Math.round(255 - 205 * night - 55 * warm)},${Math.round(255 - 160 * night - 100 * warm)},${(.3 * cl).toFixed(2)})`;
       s.clouds.forEach(q => { c.fillRect(Math.round(q.x), Math.round(q.y), 72, 8); c.fillRect(Math.round(q.x) + 14, Math.round(q.y) - 8, 40, 8); }); }
     for (let b = 0; b < 6; b++) {
       const w = Math.max(0, 1 - Math.abs(bt - b)); if (w < .01) continue; const pal = PAL[b];
       if (b <= 3) {
-        const hzb = pal.hz, d = pal.dune.map((col, q) => mixc(col, hzb, [.6, .32, .1][q]));
-        dunes(.07, GY - 74, 30, 230, 1.7, d[0], w, mixc(pal.cac, hzb, .35), b === 1 ? { cell: 820, skip: .4, fn: temple } : null, hzb);
-        dunes(.16, GY - 40, 22, 150, 4.2, d[1], w, null, b === 2 ? { cell: 560, skip: .35, fn: village } : null, hzb);
-        dunes(.32, GY - 12, 14, 100, 7.9, d[2], w, null, null, hzb);
+        const hzb = pal.hz, d = pal.dune.map((col, q) => mixc(col, hzb, pal.hzm[q]));
+        dunes(.07, GY - 74, 30, 230, 1.7, d[0], w, mixc(pal.cac, hzb, .35), b === 1 ? { at: BIO[1].at * 10 * .07 + LMW + 300, r: 64, fn: temple } : null, hzb, 16);
+        dunes(.16, GY - 40, 22, 150, 4.2, d[1], w, null, b === 2 ? { at: BIO[2].at * 10 * .16 + LMW, r: 84, fn: village } : null, hzb, 12);
+        dunes(.32, GY - 12, 14, 100, 7.9, d[2], w, null, null, hzb, 8);
       } else if (b === 4) {
-        const r = P_M.rock.map((col, q) => mixc(col, P_M.hz, [.6, .3, .1][q]));
+        const r = P_M.rock.map((col, q) => mixc(col, P_M.hz, P_M.hzm[q]));
         mesas(.07, 70, 120, 150, 270, 360, 3, r[0], w); mesas(.16, 44, 80, 110, 190, 270, 8, r[1], w); mesas(.32, 14, 28, 60, 110, 170, 13, r[2], w);
       } else cave(w);
     }
@@ -975,6 +1028,8 @@ const Game = (() => {
         c.fillStyle = "rgba(0,0,0,.28)"; c.fillRect(x, y + 37, 40, 3); c.fillRect(x + 37, y, 3, 40); c.fillStyle = "rgba(255,255,255,.07)"; c.fillRect(x, y, 40, 3);
       }
     } else { c.globalAlpha = .85; for (let y = GY; y < H; y += 40) for (let x = -(s.dist % 40); x < W; x += 40) if (ok(fl)) c.drawImage(fl, x, y, 40, 40); }
+    const ov = [0, 1, 2].map(q => pa.ov[q] + (pb.ov[q] - pa.ov[q]) * f), oa = pa.ov[3] + (pb.ov[3] - pa.ov[3]) * f;   // noche / atardecer tiñen el suelo
+    if (oa > .01) { c.globalAlpha = 1; c.fillStyle = `rgba(${ov.map(Math.round)},${oa.toFixed(3)})`; c.fillRect(0, GY, W, H - GY); }
     c.globalAlpha = 1; c.fillStyle = "rgba(0,0,0,.3)"; c.fillRect(0, GY, W, 3);                        // línea del suelo
     const rl = Math.max(0, Math.min(1, bt - 4));
     if (rl > .01) { c.globalAlpha = rl; c.fillStyle = "#5b3d1e"; for (let x = -(s.dist % 18); x < W; x += 18) c.fillRect(x, GY - 3, 10, 3); c.fillStyle = "#a4a4ad"; c.fillRect(0, GY - 4, W, 2); c.globalAlpha = 1; }
@@ -1006,7 +1061,7 @@ const Game = (() => {
     if (key === bestKey) best = Math.max(best, b);
   }
   const gainXP = n => { s.xp += n; s.pxp += n; s.fl.push({ n, t: 0 }); };   // la XP "viaja" a la barra y se suma al llegar (ver timers)
-  function takeCoin() { const q = csFresh(); if (q.n >= COIN_MAX) return false; if (!q.win) q.win = Date.now(); q.n++; s.coins++; s.pcn++; csSave(); return true; }
+  function takeCoin() { const q = csFresh(); if (q.n >= COIN_MAX) return false; if (!q.win) q.win = Date.now(); q.n++; s.coins++; s.pcn++; csSave(); snd.coin(); return true; }
 
   /* El personaje es el avatar Drop del jugador (con su skin); si no ha iniciado sesión, el Steve por defecto */
   async function loadFace() {
@@ -1024,9 +1079,9 @@ const Game = (() => {
   function burst(x, y, cols, n) { for (let i = 0; i < n; i++) s.pts.push({ x, y, vx: rnd(-4, 4), vy: rnd(-5, 1), l: rnd(25, 50), c: cols[i % cols.length] }); }
 
   /* ---- Entrada: saltar (mantener = más alto) y caída rápida ---- */
-  function doJump(air) { s.vy = -9.8; s.hold = 0; s.buf = 0; s.ja = 0; if (!air) burst(80, GY, ["#7a6a40", "#a89a70"], 6); }
+  function doJump(air) { s.vy = -9.8; s.hold = 0; s.buf = 0; s.ja = 0; if (!air) burst(80, GY, ["#7a6a40", "#a89a70"], 6); air ? snd.dj() : snd.jump(); }
   function press() {
-    if (st === "idle" || st === "over") { if (st === "over" && performance.now() - overAt < 450) return; s = reset(); st = "run"; csLoad(); csRemote(); loadBest(); return; }
+    if (st === "idle" || st === "over") { if (st === "over" && performance.now() - overAt < 450) return; ac(); s = reset(); st = "run"; csLoad(); csRemote(); loadBest(); return; }
     s.holding = true;
     if (s.y >= GY - S - .5 && !s.fall) doJump();
     else if (!s.fall && s.boost <= 0 && s.dj <= 0) { doJump(true); s.dj = 180; s.djFade = 0; burst(80, s.y + S, ["#ffffff", "#cfe9ff", "#a8d4ff"], 12); }   // doble salto: se recarga en 3 s
@@ -1040,21 +1095,21 @@ const Game = (() => {
   function boxes(o) {
     switch (o.t) {
       case "cactus": return [{ x: o.x + 3, y: GY - o.h, w: CB - 6, h: o.h }];
-      case "husk": return [{ x: o.x + 4, y: GY - 48, w: 16, h: 48 }, { x: o.x - 27, y: GY - 33, w: 27, h: 7 }];
-      case "camel": return [{ x: o.x + 9, y: GY - 58, w: 62, h: 58 }];
-      case "parched": return [{ x: o.x + 4, y: GY - 48, w: 16, h: 48 }];
+      case "husk": return [{ x: o.x + 7, y: GY - 39, w: 24, h: 39 }, { x: o.x, y: GY - 21, w: 12, h: 9 }];           // cuerpo + brazo extendido
+      case "camel": return [{ x: o.x + 24, y: GY - 50, w: 84, h: 50 }, { x: o.x + 2, y: GY - 80, w: 58, h: 34 }];   // lomo + cabeza alta: hay que saltar muy justo
+      case "parched": return [{ x: o.x + 7, y: GY - 39, w: 24, h: 39 }];
       case "cart": return [{ x: o.x + 2, y: GY - 25, w: o.w - 4, h: 25 }];
       case "tnt": return [{ x: o.x + 2, y: GY - 42, w: o.w - 4, h: 42 }];
-      case "bat": return [{ x: o.x + 4, y: o.y + 4, w: 28, h: 14 }];
+      case "bat": return [{ x: o.x + 5, y: o.y + 3, w: 32, h: 18 }];
     }
     return [];
   }
-  function die() { st = "over"; overAt = performance.now(); burst(80, s.y + 18, ["#f7b41e", "#ff8a3d", "#fff"], 36);
+  function die() { st = "over"; overAt = performance.now(); snd.die(); burst(80, s.y + 18, ["#f7b41e", "#ff8a3d", "#fff"], 36);
     const sc = Math.floor(s.dist / 10); if (sc > best) best = sc;
     if (!me()) { try { localStorage.setItem("hood_runner_best2", String(best)); } catch (e) { /* sin almacenamiento */ } }
     saveScore(sc); flush(); }
   function hurt(rm) {                                          // golpe: el tótem de inmortalidad lo absorbe
-    if (s.totems > 0) { s.totems--; s.inv = 60; burst(80, s.y + 18, ["#e8b923", "#2e9e4a", "#fff6c4", "#ffffff"], 50); if (rm) rm(); return true; }
+    if (s.totems > 0) { s.totems--; s.inv = 60; burst(80, s.y + 18, ["#e8b923", "#2e9e4a", "#fff6c4", "#ffffff"], 50); snd.save(); if (rm) rm(); return true; }
     die(); return false;
   }
   function launch(x, y, cols) { s.vy = -16.5; s.boost = 70; s.dash = 40; s.hold = 99; s.fall = false; s.fast = false; burst(x, y, cols, 30); }
@@ -1069,14 +1124,14 @@ const Game = (() => {
       if (Math.random() < .2) s.obs.push({ t: "tnt", x, w: 40, h: 44 });                       // vagoneta con TNT: impulsa, pero explota
       else { const n = r < .6 ? 1 : 2; s.obs.push({ t: "cart", x, w: n * 40 + (n - 1) * 2, h: 28, n }); }
     }
-    else if (kind === "husk") { s.obs.push({ t: "husk", x, w: 24, h: 48, dv: 5.5 }); extra = sp * 12; }   // dash al aparecer
-    else if (kind === "camel") { s.obs.push({ t: "camel", x, w: 80, h: 60 }); }
+    else if (kind === "husk") { s.obs.push({ t: "husk", x, w: 36, h: 39, dv: 5.5 }); extra = sp * 12; snd.husk(); }   // dash al aparecer
+    else if (kind === "camel") { s.obs.push({ t: "camel", x, w: 108, h: 85 }); extra = 50; }
     else if (kind === "parched") {                              // la flecha sale primero y va a velocidad propia fija; el esqueleto llega ~42 fotogramas después a cualquier velocidad
       const dv = 2.4, D = W - 72, d = Math.max(0, 42 * sp - D * dv / (sp + dv));
-      s.arrows.push({ x, y: GY - 32, dv }); s.obs.push({ t: "parched", x: x + d, w: 24, h: 48 }); extra = d + sp * 10;
+      s.arrows.push({ x, y: GY - 19, dv }); s.obs.push({ t: "parched", x: x + d, w: 36, h: 39 }); extra = d + sp * 10; snd.arrow();
     }
     else if (kind === "pit") { const gw = Math.round(90 + sp * 8); s.gaps.push({ x, w: gw, lava: s.biome >= CAVE }); extra = gw + sp * 8; }
-    else if (kind === "bat") { s.obs.push({ t: "bat", x, w: 36, h: 20, y: GY - 140, ph: rnd(0, 6), dv: 1.8 }); extra = sp * 10; }
+    else if (kind === "bat") { s.obs.push({ t: "bat", x, w: 42, h: 24, y: GY - 140, ph: rnd(0, 6), dv: 1.8 }); extra = sp * 10; }
     if (s.totems < MAXT && !s.tot.length && Math.random() < .06) s.tot.push({ x: x + rnd(90, 170), y: GY - rnd(60, 95), w: 26, h: 26 });
     if (coinsLeft() > 0 && Math.random() < .12) s.coin.push({ x: x + rnd(60, 240), y: GY - rnd(26, 110), w: 18, h: 18, ph: rnd(0, 6) });
     s.next = sp * 42 + rnd(60, 300) + extra;                     // separación mínima = tiempo de salto + margen: siempre es posible
@@ -1086,11 +1141,11 @@ const Game = (() => {
   function step(k) {
     const sc = s.dist / 10; let bi = 0;
     for (let i = BIO.length - 1; i >= 0; i--) if (sc >= BIO[i].at) { bi = i; break; }
-    if (bi !== s.biome) { s.biome = bi; s.banner = 190; s.bname = BIO[bi].name; s.bxp = BIO[bi].xp; s.pop = 40; s.flash = 26; gainXP(BIO[bi].xp); }
-    if (bi === CAVE) { const m = Math.floor((sc - CAVE_AT) / 1000); if (m > s.mile) { s.mile = m; const x = 60 + 12 * m; gainXP(x); s.banner = 130; s.bname = "Mineshaft · nivel " + m; s.bxp = x; } }
+    if (bi !== s.biome) { s.biome = bi; s.banner = 190; s.bname = BIO[bi].name; s.bxp = BIO[bi].xp; s.pop = 40; s.flash = 26; gainXP(BIO[bi].xp); snd.biome(); }
+    if (bi === CAVE) { const m = Math.floor((sc - CAVE_AT) / 1000); if (m > s.mile) { s.mile = m; const x = 60 + 12 * m; gainXP(x); s.banner = 130; s.bname = "Mineshaft · nivel " + m; s.bxp = x; snd.biome(); } }
     s.bt += (s.biome - s.bt) * Math.min(1, .02 * k);
     const v = s.speed * (s.dash > 0 ? 2.2 : 1) * k; s.dist += v;
-    if (!s.recDone && best > 0 && s.dist / 10 > best) { s.recDone = true; s.recT = 150; s.pop = 40; burst(80, s.y + 10, ["#ffcf33", "#fff3b0", "#ffffff"], 40); }
+    if (!s.recDone && best > 0 && s.dist / 10 > best) { s.recDone = true; s.recT = 150; s.pop = 40; snd.record(); burst(80, s.y + 10, ["#ffcf33", "#fff3b0", "#ffffff"], 40); }
     // física vertical: salto variable (mantener = menos gravedad hasta un límite) y caída rápida
     const cx = 78, over = s.boost <= 0 && s.gaps.some(g => cx > g.x + 6 && cx < g.x + g.w - 6), air = s.y < GY - S - 2;
     let grav = .7; if (s.holding && s.vy < 0 && s.hold < 16) { grav = .38; s.hold += k; }
@@ -1098,7 +1153,7 @@ const Game = (() => {
     if (s.fast && !s.fall && air && s.boost <= 0 && s.ja > 8) { if (s.vy < 10) s.vy = 10; s.vy += 1.4 * k; }
     s.vy = Math.min(26, s.vy); s.y += s.vy * k;
     if (!over && !s.fall && s.y >= GY - S) {
-      if (s.vy > 7) burst(80, GY, ["#7a6a40", "#a89a70"], 4);
+      if (s.vy > 7) { burst(80, GY, ["#7a6a40", "#a89a70"], 4); snd.land(); }
       s.y = GY - S; s.vy = 0; s.hold = 0; s.fast = false; s.ja = 99; if (s.buf > 0) doJump();
     } else if (over && s.y > GY - S + 6) s.fall = true;        // el suelo no está: cae por el pozo
     if (s.fall && s.y > H + 30) {
@@ -1113,7 +1168,7 @@ const Game = (() => {
     s.obs.forEach(o => {
       o.x -= v;
       if (o.t === "husk") { o.x -= o.dv * k; o.dv = Math.max(.9, o.dv - .13 * k); }
-      else if (o.t === "bat") { o.x -= o.dv * k; o.ph += .12 * k; o.y = GY - 140 + Math.sin(o.ph) * 12; }
+      else if (o.t === "bat") { o.x -= o.dv * k; const p0 = Math.floor(o.ph * 1.7); o.ph += .12 * k; o.y = GY - 140 + Math.sin(o.ph) * 12; if (o.x < W - 20 && Math.floor(o.ph * 1.7) !== p0 && Math.floor(o.ph * 1.7) % 2 === 0) snd.flap(); }
     });
     s.arrows.forEach(a => a.x -= v + a.dv * k);
     s.tot.forEach(t => t.x -= v); s.coin.forEach(q => q.x -= v);
@@ -1121,15 +1176,15 @@ const Game = (() => {
     s.obs = s.obs.filter(o => o.x + (o.w || 30) > -40); s.gaps = s.gaps.filter(g => g.x + g.w > -30); s.arrows = s.arrows.filter(a => a.x > -40);
     s.tot = s.tot.filter(t => t.x > -40); s.coin = s.coin.filter(q => q.x > -40);
     const p = { x: 64, y: s.y + 4, w: S - 8, h: S - 8 };
-    s.tot = s.tot.filter(t => { if (hit(p, t)) { s.totems = Math.min(MAXT, s.totems + 1); burst(t.x + 13, t.y + 13, ["#e8b923", "#2e9e4a", "#fff6c4"], 22); return false; } return true; });
+    s.tot = s.tot.filter(t => { if (hit(p, t)) { s.totems = Math.min(MAXT, s.totems + 1); snd.totem(); burst(t.x + 13, t.y + 13, ["#e8b923", "#2e9e4a", "#fff6c4"], 22); return false; } return true; });
     s.coin = s.coin.filter(q => { if (hit(p, q) && takeCoin()) { burst(q.x + 9, q.y + 9, ["#f5c93a", "#fff3b0", "#a8730f"], 12); return false; } return true; });
     if (s.fall) return;
     for (const o of s.obs) {
       if (o.t === "cactus" && o.fl && s.boost <= 0 && hit(p, { x: o.x, y: GY - o.h - 21, w: CB, h: 21 })) {      // flor: gran impulso hacia delante y arriba, no hace daño
-        o.fl = false; launch(o.x + 16, GY - o.h - 10, ["#d2708a", "#fcb0ad", "#fa8685"]); continue;
+        o.fl = false; launch(o.x + 16, GY - o.h - 10, ["#d2708a", "#fcb0ad", "#fa8685"]); gainXP(10); snd.flower(); continue;
       }
       if (o.t === "tnt" && s.boost <= 0 && boxes(o).some(b => hit(p, b))) {                                      // TNT: impulsa igual, pero la explosión hace daño
-        s.obs = s.obs.filter(q => q !== o); s.shake = 14; burst(o.x + 20, GY - 24, ["#ff8a3d", "#f7b41e", "#fff", "#d23a22"], 50);
+        s.obs = s.obs.filter(q => q !== o); s.shake = 14; snd.tnt(); burst(o.x + 20, GY - 24, ["#ff8a3d", "#f7b41e", "#fff", "#d23a22"], 50);
         if (s.totems > 0) { s.totems--; launch(o.x + 20, GY - 24, ["#ff8a3d", "#f7b41e"]); s.inv = 0; } else { die(); return; }
         break;
       }
@@ -1152,7 +1207,7 @@ const Game = (() => {
     s.fl = s.fl.filter(f => {
       if (f.t < 1) return true;
       const a = xpInfo(s.base + s.xpArr).lvl; s.xpArr += f.n; s.xpGlow = 30; const b = xpInfo(s.base + s.xpArr).lvl;
-      if (b > a) { s.lvUp = 150; s.lvTxt = "¡Nivel " + b + "!"; s.pop = Math.max(s.pop, 30); burst(80, s.y + 10, ["#b8f046", "#e6ff9a", "#ffffff", "#8fe03a"], 44); }
+      snd.orb(); if (b > a) { snd.lvl(); s.lvUp = 150; s.lvTxt = "¡Nivel " + b + "!"; s.pop = Math.max(s.pop, 30); burst(80, s.y + 10, ["#b8f046", "#e6ff9a", "#ffffff", "#8fe03a"], 44); }
       return false;
     });
     s.xpShow += (s.base + s.xpArr - s.xpShow) * Math.min(1, .12 * k);
@@ -1191,13 +1246,9 @@ const Game = (() => {
         for (let i = 0; i < o.n; i++) { if (ok(IMG.cactus)) c.drawImage(IMG.cactus, x, GY - (i + 1) * CB, CB, CB); else { c.fillStyle = "#3f9b2a"; c.fillRect(x, GY - (i + 1) * CB, CB, CB); } }
         if (o.fl && ok(IMG.flor)) c.drawImage(IMG.flor, x, GY - o.h - CB, CB, CB);
         break;
-      case "husk":
-        c.drawImage(SP.husk, x, GY - 48); c.fillStyle = "#8a6a3a"; c.fillRect(x - 19, GY - 32, 24, 4); c.fillStyle = "#d4d4d8"; c.fillRect(x - 27, GY - 33, 8, 7); c.fillStyle = "#6f553a"; c.fillRect(x - 4, GY - 33, 4, 7);
-        break;
-      case "camel": c.drawImage(SP.camel, x, GY - 60); break;
-      case "parched":
-        c.drawImage(SP.parched, x, GY - 48); c.fillStyle = "#7a5a30"; c.fillRect(x - 8, GY - 40, 4, 28); c.fillRect(x - 4, GY - 42, 4, 4); c.fillRect(x - 4, GY - 16, 4, 4); c.fillStyle = "#e6e0d0"; c.fillRect(x - 4, GY - 37, 1, 22);
-        break;
+      case "husk": c.drawImage(SP.husk, x, GY - 39); break;
+      case "camel": c.drawImage(SP.camel, x, GY - 85); break;
+      case "parched": c.drawImage(SP.parched, x, GY - 39); break;
       case "cart": for (let i = 0; i < o.n; i++) c.drawImage(SP.cart, x + i * 42, GY - 28); break;
       case "tnt":
         c.drawImage(SP.tnt, x, GY - 44);
@@ -1248,7 +1299,7 @@ const Game = (() => {
     if (st === "over") {
       const lines = TOUCH
         ? ["Tocar: saltar (mantén = más alto)", "Deslizar hacia abajo en el aire: caer rápido", "Tocar otra vez en el aire: doble salto (recarga 3 s)", "Tótem: sobrevives a un golpe o caída"]
-        : ["Saltar: Espacio / ↑ / W (mantén = más alto)", "Caer rápido: ↓ / Shift / S (solo en el aire)", "Doble salto: pulsa otra vez en el aire (recarga 3 s)", "Tótem: sobrevives a un golpe o caída"];
+        : ["Saltar: Espacio / ↑ / W (mantén = más alto)", "Caer rápido: ↓ / Shift / S (solo en el aire)", "Doble salto: pulsa otra vez en el aire (recarga 3 s)", "Flor: +10 XP · Tótem: sobrevives a un golpe · M: sonido"];
       const pw = Math.min(W - 24, 470), py = 96, ph = 118 + lines.length * 19;
       c.shadowBlur = 0; c.fillStyle = "rgba(0,0,0,.5)"; c.fillRect(Math.round(W / 2 - pw / 2), py, pw, ph); c.shadowBlur = 6;
       c.font = "800 24px" + F; c.fillStyle = "#f7b41e"; c.fillText("Fin del juego", W / 2, py + 32);
@@ -1285,6 +1336,7 @@ const Game = (() => {
   const UP = ["Space", "ArrowUp", "KeyW"], DOWN = ["ArrowDown", "ShiftLeft", "ShiftRight", "KeyS"];
   addEventListener("keydown", e => {
     if (!live()) return;
+    if (e.code === "KeyM") { muted = !muted; try { localStorage.setItem("hood_runner_mute", muted ? "1" : "0"); } catch (_) { /* sin almacenamiento */ } if (!muted) snd.coin(); return; }
     if (UP.includes(e.code)) { e.preventDefault(); if (!e.repeat) press(); }
     else if (DOWN.includes(e.code)) { e.preventDefault(); if (!e.repeat && s && s.y < GY - S - 2 && !s.fall) s.fast = true; }   // solo cuenta si la pulsas estando en el aire
   });
