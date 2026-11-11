@@ -25,6 +25,7 @@ const auth = getAuth(app), db = getFirestore(app);
 import { createAvatar, createFigureSet, loadSkin, ANIMS } from "./avatar.js";
 import { Mercado } from "./mercado.js";
 import { Cofres } from "./cofres.js";
+import { Monedas } from "./monedas.js";
 
 (() => {
 "use strict";
@@ -124,6 +125,8 @@ function route() {
 addEventListener("hashchange", route);
 window.HOOD = { db, auth, MEDALS, fb: { doc, getDoc, setDoc, getDocs, collection, deleteDoc, updateDoc, query, orderBy, limit, where, serverTimestamp, writeBatch }, signOut: () => signOut(auth), updatePassword: pw => updatePassword(auth.currentUser, pw) }; dispatchEvent(new Event("hood-ready"));
 Cofres.init({ db, auth, esc, me, fb: { doc, getDoc, setDoc, updateDoc, increment, arrayUnion }, lvl: xp => xpInfo(xp).lvl, link: pLink, refresh: () => renderAuth() });
+Monedas.init({ db, esc, me, patchMe: p => { if (profile) Object.assign(profile, p); }, refresh: () => { try { renderAuth(); } catch (e) {} },
+  fb: { doc, getDoc, getDocs, collection, query, where, limit, writeBatch, increment, serverTimestamp } });
 Mercado.init({
   db, auth, esc, me,
   fb: { doc, getDoc, setDoc, updateDoc, getDocs, collection, deleteDoc, increment, arrayUnion },
@@ -266,12 +269,12 @@ function readSkin(file) {
 const skinErr = e => e && e.message === "big" ? "La skin pesa demasiado. Prueba con otra o comprímela." : "La skin debe ser un PNG de 64×64 (o 64×32).";
 async function loadProfile(user) {
   profile = null;
-  if (!user) return;
+  if (!user) { Monedas.stop(); return; }
   try {
     const s = await getDoc(doc(db, "players", user.uid));
     if (s.exists()) { const d = s.data(); profile = { uid: user.uid, name: d.name, avatar: okAv(d.avatar), medalIds: Array.isArray(d.medalIds) ? d.medalIds : [], xp: Math.floor(Number(d.xp)) || 0, coins: Number(d.coins ?? d.monedas) || 0, inv: Array.isArray(d.inv) ? d.inv : [], equip: d.equip && typeof d.equip === "object" ? d.equip : {}, chests: Math.max(0, Math.floor(Number(d.chests)) || 0), lvChest: Number.isFinite(Number(d.lvChest)) && d.lvChest !== null ? Math.floor(Number(d.lvChest)) : null }; }
   } catch (e) { console.warn(e); }
-  if (profile) setTimeout(() => Cofres.sync(profile), 400);
+  if (profile) { setTimeout(() => Cofres.sync(profile), 400); Monedas.start(); }
 }
 async function signUp(name, pw, prem, file) {
   let avatar = DEF, skinData = null, slim = false;
@@ -473,7 +476,7 @@ const SORTS = [
   { id: "nuevos", label: "Más nuevos" }, { id: "antiguos", label: "Más antiguos" },
   { id: "puntuaciones", label: "Mejores puntuaciones" }
 ];
-let plSort = "xp", plData = [], plRows = new Map();
+let plSort = "xp", plQ = "", plData = [], plRows = new Map();
 const coinsOf = d => Number(d.coins ?? d.monedas) || 0;
 const msOf = d => { try { return d.createdAt.toMillis(); } catch (e) { return 0; } };
 const shortDate = ts => { try { return ts.toDate().toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }); } catch (e) { return "—"; } };
@@ -508,23 +511,27 @@ function sortPlayers(list, mode) {
   return [...list].sort(f);
 }
 function paintPlayers(animate) {
-  const box = $("#players"), list = sortPlayers(plData, plSort);
-  if (!list.length) { box.innerHTML = `<p class="empty">Aún no hay jugadores registrados.</p>`; plRows.clear(); return; }
+  const box = $("#players"), full = sortPlayers(plData, plSort), qn = plQ.trim().toLowerCase();
+  const list = qn ? full.filter(u => String(u.name).toLowerCase().includes(qn)) : full;
+  if (!full.length) { box.innerHTML = `<p class="empty">Aún no hay jugadores registrados.</p>`; plRows.clear(); return; }
+  if (!list.length) { box.innerHTML = `<p class="empty">Ningún jugador coincide con «${esc(plQ.trim())}».</p>`; plRows.clear(); return; }
+  const posOf = new Map(full.map((u, k) => [u.id, k + 1]));
   const first = !box.querySelector(".prow"), mine = me() && me().uid;
   const apply = () => list.forEach((u, i) => {
-    const o = { uid: u.id, name: u.name, avatar: u.avatar, pos: i + 1, i, mine: u.id === mine, xp: xpOf(u), ...statOf(u, plSort) };
+    const o = { uid: u.id, name: u.name, avatar: u.avatar, pos: posOf.get(u.id), i, mine: u.id === mine, xp: xpOf(u), ...statOf(u, plSort) };
     let el = plRows.get(u.id);
     if (!el) { el = rowEl(o); plRows.set(u.id, el); } else setRow(el, o);
     el.classList.toggle("mine", o.mine);
     box.append(el);                                          // append ordena los nodos existentes
   });
+  const keepIds = new Set(list.map(u => u.id)); plRows.forEach((el, id) => { if (!keepIds.has(id)) { el.remove(); plRows.delete(id); } });
   if (first || !animate) { box.innerHTML = ""; if (first) plRows.clear(); apply(); } else flip(box, apply);
 }
 async function renderPlayers() {
   const box = $("#players");
   try {
     const [snap, sc] = await Promise.all([
-      getDocs(query(collection(db, "players"), limit(100))),
+      getDocs(query(collection(db, "players"), limit(300))),
       getDocs(query(collection(db, "scores"), limit(500))).catch(() => null)
     ]);
     const scores = new Map(); if (sc) sc.docs.forEach(d => scores.set(d.id, Math.floor(Number(d.data().score)) || 0));
@@ -533,6 +540,10 @@ async function renderPlayers() {
     paintPlayers(had);
   } catch (e) { console.warn(e); box.innerHTML = `<p class="empty">No se pudo cargar la lista de jugadores.</p>`; }
 }
+(() => {                                                    // búsqueda de jugadores
+  const qi = $("#pl-q"); if (!qi) return; let t = 0;
+  qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { plQ = qi.value; paintPlayers(true); }, 120); });
+})();
 (() => {                                                     // menú del filtro
   const root = $("#flt"), btn = $("#flt-btn"), menu = $("#flt-menu"), lab = $("#flt-label");
   const ck = `<svg class="ck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>`;
@@ -609,6 +620,7 @@ async function renderProfile(name) {
       <div class="card lvcard"><div class="lvbig"><small>Nivel</small><b>${xi.lvl}</b></div>
         <div class="lvmain"><div class="xbar big"><u data-w="${(xi.pct * 100).toFixed(1)}"></u></div>
           <p class="muted">${nf(xi.cur)} / ${nf(xi.need)} XP para el nivel ${xi.lvl + 1} · ${nf(xpT)} XP en total</p></div></div>
+      <div id="coinbox"></div>
       <h3 class="sec">Avatar</h3>
       <div class="card avatarbox">
         <canvas id="acv" role="img" aria-label="Avatar de ${esc(p.name)} en su habitación"></canvas>
@@ -632,7 +644,7 @@ async function renderProfile(name) {
       </div>` : ""}
       <h3 class="sec">Récords</h3>
       <div class="records">${recs.map(([g, v]) => `<div class="card rec"><h4>${esc(g.name)}</h4>${v === null ? `<span class="muted">Sin récord aún</span>` : `<div class="big">${v} <small>${esc(g.unit)}</small></div>`}</div>`).join("")}</div></div></div>`;
-    lvAnim(box);
+    lvAnim(box); Monedas.card($("#coinbox"), { mine, uid, name: p.name });
     Cofres.rail($("#chestrail"), { mine, count: mine ? (me().chests || 0) : Math.floor(Number(p.chests)) || 0, name: p.name }); if (mine) Cofres.seen(me());
     const mw = $("#medals");
     ids.forEach(id => {

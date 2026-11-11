@@ -193,3 +193,30 @@ html{scrollbar-color:var(--sb) #0b0b0d}
 .pj-ask .pv.hp[data-shape=orig]{background:none;overflow:visible}.pj-ask .pv.hp[data-shape=orig] img{object-fit:contain}
 .pj-ask select{background:#0a0a0d;color:#fff;border:1px solid var(--line);border-radius:8px;padding:.5rem .6rem;font:inherit;font-size:.9rem}
 .pj-ask .bt .dg{color:#ff8a8a}
+
+/* ===== Búsqueda de jugadores + transferencias de monedas ===== */
+.plsearch{flex:1;min-width:150px;max-width:340px;margin-left:auto}
+.plsearch input{width:100%;box-sizing:border-box;font:inherit;font-size:.9rem;color:var(--t,#eee);background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:999px;padding:.55rem 1rem;outline:none}
+.plsearch input:focus{border-color:var(--y,#f7b41e)}
+.plsearch .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.plhead{flex-wrap:wrap;gap:.7rem}
+.mn-card .mn-top{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.mn-big small{display:block;opacity:.65;font-size:.78rem}.mn-big b{font:400 1.9rem var(--mc,monospace);color:var(--y,#f7b41e)}
+.mn-mut{opacity:.65;font-size:.85rem}
+#mn-pend h4{margin:1rem 0 .4rem;font:400 .8rem var(--mc,monospace);opacity:.8}
+.mn-p{display:flex;justify-content:space-between;align-items:center;gap:.6rem;padding:.35rem 0;border-top:1px solid var(--line);font-size:.88rem}
+.mn-ov{position:fixed;inset:0;z-index:9995;background:rgba(0,0,0,.7);display:grid;place-items:center;padding:1rem}
+.mn-box{width:min(440px,100%);max-height:92vh;overflow:auto;background:#15151a;color:#eee;border:1px solid var(--line);border-radius:16px;padding:1.2rem;display:flex;flex-direction:column;gap:.7rem}
+.mn-box h3{margin:0;font:400 1.2rem var(--mc,monospace)}.mn-sal{margin:0;font-size:.9rem}
+.mn-box label{display:flex;flex-direction:column;gap:.25rem;font-size:.8rem}
+.mn-box input{font:inherit;color:#fff;background:#0a0a0d;border:1px solid var(--line);border-radius:8px;padding:.55rem .7rem}
+.mn-list{max-height:190px;overflow:auto;display:flex;flex-direction:column;gap:.2rem;border:1px solid var(--line);border-radius:10px;padding:.3rem}
+.mn-list button{text-align:left;font:inherit;color:#eee;background:transparent;border:1px solid transparent;border-radius:8px;padding:.4rem .6rem;cursor:pointer}
+.mn-list button:hover{background:rgba(255,255,255,.08)}.mn-list button.on{background:rgba(247,180,30,.22);border-color:var(--y,#f7b41e)}
+.mn-to{margin:0;font-size:.88rem;min-height:1.2em}
+.mn-quick{display:flex;gap:.35rem;flex-wrap:wrap}
+.mn-box button[type=button],.mn-bt button{font:inherit;font-size:.82rem;color:#eee;background:rgba(255,255,255,.1);border:1px solid var(--line);border-radius:8px;padding:.35rem .7rem;cursor:pointer}
+.mn-bt{display:flex;justify-content:flex-end;gap:.5rem}.mn-bt .go{background:var(--y,#f7b41e);color:#000;border-color:transparent;font-weight:700}.mn-bt button:disabled{opacity:.5}
+.mn-err{margin:0;color:#ff8a8a;font-size:.85rem;min-height:1.1em}
+.mn-toast{position:fixed;left:50%;bottom:1.5rem;transform:translateX(-50%);z-index:9996;padding:.7rem 1.1rem;border-radius:12px;font-size:.9rem;max-width:90vw;box-shadow:0 6px 24px rgba(0,0,0,.5)}
+.mn-toast.ok{background:#17301d;color:#b8f0c4;border:1px solid #2f7a45}.mn-toast.bad{background:#341616;color:#ffb0b0;border:1px solid #a33}.mn-toast[hidden]{display:none}
