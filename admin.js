@@ -60,7 +60,7 @@ function openPanel() {
   if (!isAdmin() || ov) return; document.documentElement.classList.add("adm-open");
   ov = document.createElement("div"); ov.className = "adm"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-label", "Panel de administración");
   ov.innerHTML = `<div class="adm-box"><header><b>🛡 Administración · HOODSTUDIO</b>
-    <nav>${[["jug", "Jugadores"], ["test", "Pruebas"], ["rank", "Rankings"], ["log", "Registro"], ["seg", "Seguridad"]].map(([k, l]) => `<button type="button" data-t="${k}">${l}</button>`).join("")}</nav>
+    <nav>${[["jug", "Jugadores"], ["test", "Pruebas"], ["rank", "Rankings"], ["log", "Registro"], ["seg", "Seguridad"], ["z3d", "🧟 Zombies 3D"]].map(([k, l]) => `<button type="button" data-t="${k}">${l}</button>`).join("")}</nav>
     <button type="button" class="x" aria-label="Cerrar">×</button></header>
     <div id="adm-toast" class="tst" hidden role="status"></div><section id="adm-body"></section></div>`;
   document.body.append(ov);
@@ -71,9 +71,15 @@ function openPanel() {
 }
 function draw() {
   if (!ov) return; ov.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.t === tab));
-  ({ jug: tabJug, test: tabTest, rank: tabRank, log: tabLog, seg: tabSeg })[tab]();
+  ({ jug: tabJug, test: tabTest, rank: tabRank, log: tabLog, seg: tabSeg, z3d: tabZ3d })[tab]();
 }
 const body = () => $("#adm-body");
+
+/* ---------- Zombies 3D (BETA, solo admin) ---------- */
+function tabZ3d() {
+  body().innerHTML = `<div class="det"><h3>🧟 Zombies 3D · BETA</h3><p class="mut">Shooter arcade 3D de rondas contra zombis en una escuela. Solo visible para administradores mientras está en fase beta.</p><p class="mut">Necesita ratón y teclado (escritorio). Los objetos de la tienda con imagen se pueden usar como llaveros de las armas.</p><div class="row"><button type="button" id="adm-z3d">Jugar Zombies 3D</button></div><div id="adm-z3d-msg" style="margin-top:8px;font-size:13px"></div></div>`;
+  $("#adm-z3d").onclick = async () => { const m = $("#adm-z3d-msg"); m.textContent = "Cargando…"; try { const mod = await import("./zombies3d.js"); closePanel(); mod.Z3D.open(); } catch (e) { console.error(e); m.textContent = "No se pudo cargar: " + e.message; } };
+}
 
 /* ---------- Jugadores ---------- */
 async function loadPlayers() {
