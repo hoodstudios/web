@@ -23,7 +23,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app), db = getFirestore(app);
 
 import { createAvatar, createFigureSet, loadSkin, ANIMS } from "./avatar.js";
-import { createRoom, TEST_FURN, TEST_PET } from "./habitacion.js";
+import { createRoom, TEST_PET } from "./habitacion.js";
 import { Mercado } from "./mercado.js";
 import { Cofres } from "./cofres.js";
 import { Monedas } from "./monedas.js";
@@ -662,10 +662,11 @@ async function renderProfile(name) {
     Mercado.inventory($("#invbox"), { inv: pinv, equip: pe, mine, name: p.name });
     const pcos = await Mercado.hatCos(pe.hat);
     if (tok !== profTok) return;
-    const ro = Mercado.roomOf(pe), adminTest = mine && Mercado.isAdmin(), aopt = { skinSources: skinSources(p.name, p.avatar, md), slim: !!(md && md.slim), name: p.name, cos: pcos };
-    try {   // habitación isométrica 3D (avatar 2D); si no hay WebGL, queda la habitación 2D de siempre
+    const ro = Mercado.roomOf(pe, pinv), adminTest = mine && Mercado.isAdmin(), aopt = { skinSources: skinSources(p.name, p.avatar, md), slim: !!(md && md.slim), name: p.name, cos: pcos };
+    try {   // habitación isométrica 3D (avatar 2D) con editor tipo Sims; si no hay WebGL, queda la habitación 2D de siempre
       const cvs = $("#acv"); cvs.style.imageRendering = "auto";
-      avatarFx = createRoom(cvs, { ...aopt, furn: adminTest && !ro.furn.length ? TEST_FURN : ro.furn, pet: ro.pet || (adminTest ? TEST_PET : null) });
+      avatarFx = createRoom(cvs, { ...aopt, items: ro.items, layout: ro.layout, floorId: ro.floorId, wallId: ro.wallId, catalog: ro.catalog, pet: ro.pet || (adminTest ? TEST_PET : null), editable: mine, test: adminTest && !ro.items.length && !ro.floorId && !ro.wallId,
+        onSave: st => { const real = id => !String(id).startsWith("t_"), layout = {}; st.items.filter(i => real(i.id)).forEach(i => { layout[i.id] = st.layout[i.id]; }); return Mercado.saveRoom({ room: st.items.filter(i => real(i.id)).map(i => i.id), layout, floor: real(st.floorId) ? st.floorId : null, wall: real(st.wallId) ? st.wallId : null }); } });
     } catch (e) {
       console.warn("Habitación 3D no disponible:", e); avatarFx = null;
       const old = $("#acv"), cl = document.createElement("canvas"); cl.id = "acv"; old.replaceWith(cl);

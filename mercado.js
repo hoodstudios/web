@@ -4,7 +4,7 @@
  * Las dependencias llegan desde main.js con Mercado.init(...) para no duplicar Firebase. */
 import { createFigureSet, ANIMS } from "./avatar.js";
 import { viewer3d, parseBB } from "./viewer3d.js";
-import { modelThumb, modelPreview, furnKinds, petKinds, FURN, PETS } from "./habitacion.js";
+import { modelThumb, modelPreview, furnKinds, winKinds, floorKinds, wallKinds, petKinds, hasKind, kindGroup } from "./habitacion.js";
 
 const ADMIN_EMAIL = "hoodstudio@hoodstudio.app";
 const CATS = [
@@ -105,7 +105,8 @@ export async function decorate({ equip, frameEls = [], bgEl = null }) {
   frameEls.forEach(e => applyFrame(e, shop.get(eq.frame)));
   if (bgEl) applyBg(bgEl, shop.get(eq.bg));
 }
-const isModel = it => (it.cat === "pets" && !!PETS[it.kind]) || (it.cat === "furn" && !!FURN[it.kind]);
+const isModel = it => (it.cat === "pets" || it.cat === "furn") && hasKind(it.cat, it.kind);
+const furnTab = it => { const g = kindGroup(it.kind); return g === "furn" ? "m" : g === "win" ? "w" : "t"; };
 function thumb(it) {
   if (it.cat === "pets" || it.cat === "furn") { const u = isModel(it) ? modelThumb(it.cat, it.kind) : ""; return u ? `<img class="mk-th px" style="image-rendering:auto" src="${u}" alt="">` : ""; }
   if (it.cat === "hat" || it.cat === "items" || (it.cat === "profile" && !it.kind.startsWith("bg") && !it.kind.startsWith("fr-") && it.img))
@@ -229,17 +230,18 @@ function items() {
   let l = [...shop.values()].filter(i => i.cat === cat).sort(byOrder);
   if (!adminOn) l = l.filter(i => !i.hidden && !i.chestOnly);
   if (cat === "profile") l = l.filter(i => (tab === "bg") === (i.kind.startsWith("bg")));
+  if (cat === "furn") l = l.filter(i => furnTab(i) === tab);
   return l;
 }
 function openBook(cat) {
-  openCat = cat; page = 0; sel = null; hov = null; tab = "bg";
+  openCat = cat; page = 0; sel = null; hov = null; tab = cat === "furn" ? "m" : "bg";
   const c = CATS.find(x => x.id === cat), bv = q("#mk-bv");
   q("#mk-cv").hidden = true; bv.hidden = false; bv.classList.remove("in"); void bv.offsetWidth; bv.classList.add("in");
   bv.innerHTML = `
     <div class="mk-book" data-cat="${cat}">
       <div class="mk-page l">
         <div class="mk-bar"><button class="mk-back" type="button">◀ Catálogos</button><h3>${esc(c.name)}</h3><span class="mk-coins mini" id="mk-coins2"></span></div>
-        <div class="mk-tabs" id="mk-tabs" ${cat === "profile" ? "" : "hidden"}><button type="button" data-t="bg">Fondos</button><button type="button" data-t="fr">Marcos</button></div>
+        <div class="mk-tabs" id="mk-tabs" ${cat === "profile" || cat === "furn" ? "" : "hidden"}>${cat === "furn" ? `<button type="button" data-t="m">Muebles</button><button type="button" data-t="w">Ventanas</button><button type="button" data-t="t">Pisos y paredes</button>` : `<button type="button" data-t="bg">Fondos</button><button type="button" data-t="fr">Marcos</button>`}</div>
         <div class="mk-adm" id="mk-adm" hidden></div>
         <div class="mk-grid" id="mk-grid"></div>
         <div class="mk-pg"><button type="button" id="mk-pp" aria-label="Página anterior">◀</button><span id="mk-pn"></span><button type="button" id="mk-pnx" aria-label="Página siguiente">▶</button></div>
@@ -267,7 +269,8 @@ function coinsLabel() {
   ["#mk-coins", "#mk-coins2"].forEach(s => { const e = q(s); if (e) e.innerHTML = h; });
 }
 const owned = id => { const u = D.me(); return !!u && Array.isArray(u.inv) && u.inv.includes(id); };
-const worn = it => { const u = D.me(), e = (u && u.equip) || {}; return it.cat === "hat" ? e.hat === it.id : it.kind.startsWith("bg") ? e.bg === it.id : it.kind.startsWith("fr") ? e.frame === it.id : it.cat === "pets" ? e.pet === it.id : it.cat === "furn" ? Array.isArray(e.room) && e.room.includes(it.id) : false; };
+const wornIn = (it, e) => it.cat === "hat" ? e.hat === it.id : it.cat === "pets" ? e.pet === it.id : it.cat === "furn" ? (it.kind.startsWith("floor-") ? e.floor === it.id : it.kind.startsWith("wall-") ? e.wall === it.id : Array.isArray(e.room) && e.room.includes(it.id)) : it.cat === "profile" ? (it.kind.startsWith("bg") ? e.bg === it.id : it.kind.startsWith("fr") ? e.frame === it.id : false) : false;
+const worn = it => { const u = D.me(); return wornIn(it, (u && u.equip) || {}); };
 const wearable = it => it.cat === "hat" || it.cat === "pets" || it.cat === "furn" || (it.cat === "profile" && (it.kind.startsWith("bg") || it.kind.startsWith("fr-")));
 
 function renderBook() {
@@ -368,9 +371,10 @@ async function onBuy() {
 }
 export async function equip(it, on) {
   const u = D.me(); if (!u || !it) return false;
-  const slot = it.cat === "hat" ? "hat" : it.cat === "pets" ? "pet" : it.cat === "furn" ? "room" : it.kind.startsWith("bg") ? "bg" : it.kind.startsWith("fr-") ? "frame" : null; if (!slot) return false;
+  const slot = it.cat === "hat" ? "hat" : it.cat === "pets" ? "pet" : it.cat === "furn" ? (it.kind.startsWith("floor-") ? "floor" : it.kind.startsWith("wall-") ? "wall" : "room") : it.kind.startsWith("bg") ? "bg" : it.kind.startsWith("fr-") ? "frame" : null; if (!slot) return false;
   const eq = { ...(u.equip || {}) };
-  if (slot === "room") { const cur = Array.isArray(eq.room) ? eq.room.filter(x => x !== it.id) : []; if (on) { if (cur.length >= 10) return false; cur.push(it.id); } eq.room = cur; }
+  if (slot === "room" && !on && eq.layout && eq.layout[it.id]) { const ly = { ...eq.layout }; delete ly[it.id]; eq.layout = ly; }
+  if (slot === "room") { const cur = Array.isArray(eq.room) ? eq.room.filter(x => x !== it.id) : []; if (on) { if (cur.length >= 16) return false; cur.push(it.id); } eq.room = cur; }
   else eq[slot] = on ? it.id : null;
   try { await D.fb.updateDoc(D.fb.doc(D.db, "players", u.uid), { equip: eq }); } catch (e) { console.warn(e); return false; }
   D.patchMe({ equip: eq }); D.onChange(); return true;
@@ -416,7 +420,7 @@ function readImg(file, max) {
 }
 function editItem(it) {
   const isNew = !it, cat = it ? it.cat : openCat;
-  const base = it || { id: "", name: "", cat, kind: cat === "profile" ? (tab === "bg" ? "bg-solid" : "fr-solid") : cat === "pets" ? "cat" : cat === "furn" ? "bed" : "", price: 100, hidden: false, img: "", w: 16, x: 0, y: 1, c1: "#e0402a", c2: "#2a6fe0", game: "end", desc: "", model: false };
+  const base = it || { id: "", name: "", cat, kind: cat === "profile" ? (tab === "bg" ? "bg-solid" : "fr-solid") : cat === "pets" ? "cat" : cat === "furn" ? (tab === "w" ? "win-plains" : tab === "t" ? "floor-stone" : "bed") : "", price: 100, hidden: false, img: "", w: 16, x: 0, y: 1, c1: "#e0402a", c2: "#2a6fe0", game: "end", desc: "", model: false };
   let img = base.img, obj = null, dropModel = false;
   const m = modal(`
     <h3>${isNew ? "Nuevo artículo" : "Editar artículo"}</h3>
@@ -424,7 +428,7 @@ function editItem(it) {
       <label>Nombre<input name="name" maxlength="40" value="${esc(base.name)}" required></label>
       <label>Precio (monedas)<input name="price" type="number" min="0" max="1000000" step="1" value="${base.price}"></label>
       <label>Descripción (opcional)<input name="desc" maxlength="120" value="${esc(base.desc)}"></label>
-      ${cat === "pets" || cat === "furn" ? `<label>Modelo<select name="kind">${(cat === "pets" ? petKinds() : furnKinds()).map(([k, v]) => `<option value="${k}" ${base.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>` : ""}
+      ${cat === "pets" || cat === "furn" ? `<label>Modelo<select name="kind">${(cat === "pets" ? petKinds() : [...furnKinds(), ...winKinds(), ...floorKinds(), ...wallKinds()]).map(([k, v]) => `<option value="${k}" ${base.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>` : ""}
       ${cat === "profile" ? `<label>Tipo<select name="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${base.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>` : ""}
       <div class="mk-row" data-f="colors"><label>Color 1<input name="c1" type="color" value="${esc(base.c1)}"></label><label data-f="c2">Color 2<input name="c2" type="color" value="${esc(base.c2)}"></label></div>
       <label data-f="game">Fondo del minijuego<select name="game">${Object.entries(GAMEBG).map(([k, v]) => `<option value="${k}" ${base.game === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>
@@ -538,8 +542,11 @@ function seedAll() {
   out.push({ id: "it_heart", name: "Corazón", cat: "items", price: 80, img: sprite(["..rrr.rrr..", ".rrwrrrrrr.", "rrwrrrrrrrr", "rrrrrrrrrrr", "rrrrrrrrrrd", ".rrrrrrrrd.", "..rrrrrdd..", "...rrrdd...", "....rdd....", ".....d....."], { r: "#e5233b", w: "#ff9aa6", d: "#a3162a" }), desc: "Una vida extra." });
   FURN_NAMES.forEach(([k, n], i) => out.push({ id: "fu_" + k, name: n, cat: "furn", kind: k, price: 120 + i * 10, hidden: true, desc: "Mueble de prueba (solo administrador)." }));
   PET_NAMES.forEach(([k, n], i) => out.push({ id: "pt_" + k, name: n, cat: "pets", kind: k, price: 200 + i * 50, hidden: true, desc: "Mascota de prueba (solo administrador)." }));
+  WIN_NAMES.forEach(([k, n], i) => out.push({ id: "wn_" + k, name: n, cat: "furn", kind: k, price: 150 + i * 10, hidden: true, desc: "Ventana de prueba (solo administrador)." }));
+  [...floorKinds(), ...wallKinds()].forEach(([k, n], i) => out.push({ id: "tx_" + k, name: n, cat: "furn", kind: k, price: 80 + (i % 5) * 10, hidden: true, desc: "Textura de prueba (solo administrador)." }));
   return out;
 }
+const WIN_NAMES = winKinds();
 const FURN_NAMES = furnKinds(), PET_NAMES = petKinds();
 async function seed() {
   if (!confirm("Esto agrega los artículos iniciales (sombreros, fondos, marcos e items) que todavía no existan. ¿Continuar?")) return;
@@ -562,7 +569,7 @@ export async function inventory(host, { inv = [], equip: eq = {}, mine = false, 
   await loadShop();
   const list = (Array.isArray(inv) ? inv : []).map(id => shop.get(id)).filter(Boolean);
   if (!list.length) { host.innerHTML = `<p class="muted">${mine ? "Aún no has comprado nada. Visita el Mercado." : "Aún no tiene artículos."}</p>`; return; }
-  const order = { items: 0, hat: 1, profile: 2, pets: 3, furn: 4 }, wornOf = it => (it.cat === "hat" && eq.hat === it.id) || (it.cat === "pets" && eq.pet === it.id) || (it.cat === "furn" && Array.isArray(eq.room) && eq.room.includes(it.id)) || (it.cat === "profile" && (eq.bg === it.id || eq.frame === it.id));
+  const order = { items: 0, hat: 1, profile: 2, pets: 3, furn: 4 }, wornOf = it => wornIn(it, eq);
   list.sort((a, b) => (order[a.cat] ?? 9) - (order[b.cat] ?? 9) || byOrder(a, b));
   host.innerHTML = `<div class="mk-inv">${list.map(it => `<button class="mk-slot${wornOf(it) ? " worn" : ""}" type="button" data-id="${esc(it.id)}" title="${esc(it.name)}"><span class="mk-tw">${thumb(it)}</span><b>${esc(it.name)}</b></button>`).join("")}</div>`;
   host.onclick = e => { const b = e.target.closest(".mk-slot"); if (b) inspect(list, list.findIndex(x => x.id === b.dataset.id), mine, host, { inv, equip: eq, mine, name }); };
@@ -593,7 +600,7 @@ async function inspect(list, idx, mine, host, st) {
   const go = d => { i = (i + d + list.length) % list.length; show(d); };
   async function show(dir = 0) {
     const it = list[i], my = ++tok, u = D.me(), eq = (mine && u && u.equip) || st.equip || {};
-    const on = wearable(it) && ((it.cat === "hat" && eq.hat === it.id) || (it.cat === "pets" && eq.pet === it.id) || (it.cat === "furn" && Array.isArray(eq.room) && eq.room.includes(it.id)) || (it.cat === "profile" && (eq.bg === it.id || eq.frame === it.id)));
+    const on = wearable(it) && wornIn(it, eq);
     const stg = m.querySelector(".mk-ist"), cap = m.querySelector(".mk-icap");
     if (v) { v.stop(); v = null; }
     stg.style.setProperty("--dir", dir || 1); stg.classList.remove("sw"); void stg.offsetWidth; stg.classList.add("sw");
@@ -623,13 +630,22 @@ async function inspect(list, idx, mine, host, st) {
 }
 
 /* ---------- API ---------- */
-/* qué muebles y mascota tiene puestos un perfil (para la habitación) */
-export function roomOf(equip, test = false) {
-  const e = equip || {}, f = (Array.isArray(e.room) ? e.room : []).map(id => shop.get(id)).filter(it => it && it.cat === "furn" && FURN[it.kind]).map(it => it.kind), pi = shop.get(e.pet), pk = pi && pi.cat === "pets" && PETS[pi.kind] ? pi.kind : null;
-  return { furn: f, pet: pk };
+/* datos de la habitación de un perfil: muebles/ventanas puestos, textura de piso y pared, mascota y catálogo para el modo edición */
+export function roomOf(equip, inv = []) {
+  const e = equip || {}, ok = (id, g) => { const it = shop.get(id); return it && it.cat === "furn" && hasKind("furn", it.kind) && (!g || kindGroup(it.kind) === g) ? it : null; };
+  const items = (Array.isArray(e.room) ? e.room : []).map(id => ok(id)).filter(it => it && !/^(floor|wall)-/.test(it.kind)).map(it => ({ id: it.id, kind: it.kind, name: it.name }));
+  const pi = shop.get(e.pet), pet = pi && pi.cat === "pets" && hasKind("pets", pi.kind) ? pi.kind : null;
+  const catalog = (Array.isArray(inv) ? inv : []).map(id => ok(id)).filter(Boolean).map(it => ({ id: it.id, kind: it.kind, name: it.name }));
+  return { items, pet, layout: e.layout && typeof e.layout === "object" ? e.layout : {}, floorId: ok(e.floor, "floor") ? e.floor : null, wallId: ok(e.wall, "wall") ? e.wall : null, catalog };
+}
+/* guarda la disposición de la habitación (editor tipo Sims) */
+export async function saveRoom(st) {
+  const u = D.me(); if (!u) throw new Error("sin sesión");
+  const eq = { ...(u.equip || {}), room: st.room, layout: st.layout, floor: st.floor || null, wall: st.wall || null };
+  await D.fb.updateDoc(D.fb.doc(D.db, "players", u.uid), { equip: eq }); D.patchMe({ equip: eq });
 }
 export const Mercado = {
-  roomOf,
+  roomOf, saveRoom,
   init(deps) { D = deps; root = document.querySelector("#mk"); },
   async enter() {
     if (!root || !D) return;
