@@ -660,6 +660,7 @@ async function renderProfile(name) {
     const pe = p.equip && typeof p.equip === "object" ? p.equip : {}, pinv = Array.isArray(p.inv) ? p.inv : [];
     Mercado.decorate({ equip: pe, frameEls: [$("#pface")], bgEl: box });
     Mercado.inventory($("#invbox"), { inv: pinv, equip: pe, mine, name: p.name });
+    await Mercado.prepareRoom(pe, pinv, mine);
     const pcos = await Mercado.hatCos(pe.hat);
     if (tok !== profTok) return;
     const ro = Mercado.roomOf(pe, pinv), adminTest = mine && Mercado.isAdmin(), aopt = { skinSources: skinSources(p.name, p.avatar, md), slim: !!(md && md.slim), name: p.name, cos: pcos };

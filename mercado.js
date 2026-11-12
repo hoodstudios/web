@@ -4,7 +4,7 @@
  * Las dependencias llegan desde main.js con Mercado.init(...) para no duplicar Firebase. */
 import { createFigureSet, ANIMS } from "./avatar.js";
 import { viewer3d, parseBB } from "./viewer3d.js";
-import { modelThumb, modelPreview, furnKinds, winKinds, floorKinds, wallKinds, petKinds, hasKind, kindGroup } from "./habitacion.js";
+import { modelThumb, modelPreview, furnKinds, winKinds, floorKinds, wallKinds, petKinds, hasKind, kindGroup, registerBB, bbVersion, bbAnimNames } from "./habitacion.js";
 
 const ADMIN_EMAIL = "hoodstudio@hoodstudio.app";
 const CATS = [
@@ -31,7 +31,7 @@ const q = s => root.querySelector(s);
 const isAdmin = () => { const u = D && D.auth.currentUser; return !!(u && (u.email || "").toLowerCase() === ADMIN_EMAIL); };
 const byOrder = (a, b) => (a.order - b.order) || a.name.localeCompare(b.name);
 function norm(id, d) {
-  return { id, name: String(d.name || "Sin nombre"), cat: String(d.cat || "items"), kind: d.kind || "", price: Math.max(0, Math.floor(Number(d.price) || 0)), order: Number(d.order) || 0, hidden: d.hidden === true,
+  return { id, name: String(d.name || "Sin nombre"), cat: String(d.cat || "items"), kind: d.kind === "bb" ? "bb:" + id : d.kind || "", sc: Number(d.sc) || 1, anim: typeof d.anim === "string" ? d.anim : "", price: Math.max(0, Math.floor(Number(d.price) || 0)), order: Number(d.order) || 0, hidden: d.hidden === true,
     img: typeof d.img === "string" ? d.img : "", w: Number(d.w) || 16, x: Number(d.x) || 0, y: Number.isFinite(Number(d.y)) ? Number(d.y) : 1, c1: d.c1 || "#888888", c2: d.c2 || "#444444", game: d.game || "end", desc: d.desc || "", model: d.model === true, ench: d.ench === true, chestOnly: d.chestOnly === true };
 }
 export function loadShop(force) {
@@ -61,6 +61,20 @@ export async function hatCos(id) {
     return img ? { img, w: it.w, x: it.x, y: it.y, ench: !!it.ench } : null;
   } catch (e) { return null; }
 }
+/* modelos .bbmodel de mascotas y muebles: se descargan y se registran para poder dibujarlos */
+async function ensureBB(list, force = false) {
+  let changed = false;
+  for (const it of list) {
+    if (!it || !String(it.kind).startsWith("bb:") || (!force && bbVersion(it.id))) continue;
+    const t = await modelOf(it.id); if (t && registerBB(it.id, t, { sc: it.sc, anim: it.anim, name: it.name })) changed = true;
+  }
+  return changed;
+}
+async function prepareRoom(equip, inv, all) {
+  await loadShop(); const e = equip || {}, ids = new Set([...(Array.isArray(e.room) ? e.room : []), e.pet]); if (all) (Array.isArray(inv) ? inv : []).forEach(i => ids.add(i));
+  await ensureBB([...ids].map(id => shop.get(id)).filter(Boolean));
+}
+let bbBusy = false;
 async function modelOf(id) {
   if (modelCache.has(id)) return modelCache.get(id);
   let t = null;
@@ -300,6 +314,7 @@ function renderBook() {
     grid.append(c);
   });
   if (slice.length < PER) { const s = document.createElement("div"); s.className = "mk-card soon"; s.innerHTML = `<div class="mk-tw"><b>?</b></div><span class="mk-cn">PRÓXIMAMENTE</span>`; grid.append(s); }
+  if (!bbBusy) { const need = slice.filter(it => String(it.kind).startsWith("bb:") && !bbVersion(it.id)); if (need.length) { bbBusy = true; ensureBB(need).then(c => { bbBusy = false; if (c) renderBook(); }).catch(() => { bbBusy = false; }); } }
   q("#mk-pn").textContent = `${page + 1} / ${pages}`; q("#mk-pp").disabled = page === 0; q("#mk-pnx").disabled = page >= pages - 1;
   showPanel();
 }
@@ -340,6 +355,7 @@ async function showPanel() {
     v3.set({ img, bb: obj, ench: it.ench });
   } else if (it.cat === "pets" || it.cat === "furn") {
     stopStage(); const s = q("#mk-stage"); s.dataset.t = "room"; s.innerHTML = `<canvas class="mk-3d"></canvas><small class="mk-tip">Arrastra para girarlo</small>`;
+    if (String(it.kind).startsWith("bb:") && !isModel(it)) { await ensureBB([it]); if (tok !== panelTok) return; }
     if (isModel(it)) ap = modelPreview(s.querySelector("canvas"), it.cat, it.kind);
   } else if (it.cat === "profile") {
     stopStage(); const s = q("#mk-stage"); s.dataset.t = "p";
@@ -428,7 +444,8 @@ function editItem(it) {
       <label>Nombre<input name="name" maxlength="40" value="${esc(base.name)}" required></label>
       <label>Precio (monedas)<input name="price" type="number" min="0" max="1000000" step="1" value="${base.price}"></label>
       <label>Descripción (opcional)<input name="desc" maxlength="120" value="${esc(base.desc)}"></label>
-      ${cat === "pets" || cat === "furn" ? `<label>Modelo<select name="kind">${(cat === "pets" ? petKinds() : [...furnKinds(), ...winKinds(), ...floorKinds(), ...wallKinds()]).map(([k, v]) => `<option value="${k}" ${base.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>` : ""}
+      ${cat === "pets" || cat === "furn" ? `<label>Modelo<select name="kind"><option value="bb" ${base.kind.startsWith("bb:") ? "selected" : ""}>📦 Archivo .bbmodel (Blockbench, con animaciones)</option>${(cat === "pets" ? petKinds() : [...furnKinds(), ...winKinds(), ...floorKinds(), ...wallKinds()]).map(([k, v]) => `<option value="${k}" ${base.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+      <div class="mk-row" data-f="bbopts"><label>Escala (1 = 16 unid. de Blockbench por bloque)<input name="sc" type="number" min="0.05" max="20" step="0.05" value="${base.sc || 1}"></label><label>Animación (vacío = automática)<input name="anim" list="mk-anims" maxlength="40" value="${esc(base.anim || "")}"><datalist id="mk-anims"></datalist></label></div>` : ""}
       ${cat === "profile" ? `<label>Tipo<select name="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${base.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>` : ""}
       <div class="mk-row" data-f="colors"><label>Color 1<input name="c1" type="color" value="${esc(base.c1)}"></label><label data-f="c2">Color 2<input name="c2" type="color" value="${esc(base.c2)}"></label></div>
       <label data-f="game">Fondo del minijuego<select name="game">${Object.entries(GAMEBG).map(([k, v]) => `<option value="${k}" ${base.game === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>
@@ -447,12 +464,13 @@ function editItem(it) {
   let fap = null;
   m._done = () => { if (fap) fap.stop(); };
   const vis = () => {
-    const k = cat === "profile" ? f.kind.value : "", rm = cat === "pets" || cat === "furn";
+    const k = cat === "profile" ? f.kind.value : "", rm = cat === "pets" || cat === "furn", isBB = rm && f.kind.value === "bb";
     const show = (s, on) => { const e = $f(`[data-f="${s}"]`); if (e) e.hidden = !on; };
     show("colors", cat === "profile" && ["bg-solid", "bg-grad", "fr-solid", "fr-neon"].includes(k));
     show("c2", k === "bg-grad"); show("game", k === "bg-game"); show("img", rm ? false : (cat !== "profile" || k === "bg-img"));
-    show("hat", cat === "hat"); show("hatprev", cat === "hat"); show("model", cat === "items"); show("ench", cat === "items" || cat === "hat");
+    show("hat", cat === "hat"); show("hatprev", cat === "hat"); show("model", cat === "items" || isBB); show("bbopts", isBB); show("ench", cat === "items" || cat === "hat");
     show("rmmodel", cat === "items" && base.model);
+    const lb = $f('[data-f="model"]'); if (lb && lb.firstChild) lb.firstChild.textContent = isBB ? "Archivo .bbmodel de Blockbench (obligatorio, máx. ~900 KB)" : "Modelo 3D (.bbmodel de Blockbench, opcional)";
   };
   vis(); if (f.kind) f.kind.onchange = vis;
   const updPrev = async () => {
@@ -466,7 +484,7 @@ function editItem(it) {
   f.obj.onchange = async () => {
     ferr.textContent = ""; const fl = f.obj.files[0]; if (!fl) return;
     if (fl.size > 900000) { ferr.textContent = "El modelo pesa demasiado (máx. ~900 KB). Reduce o comprime la textura en Blockbench."; f.obj.value = ""; return; }
-    try { obj = await fl.text(); parseBB(obj); } catch (e) { ferr.textContent = "El archivo no es un .bbmodel válido."; obj = null; f.obj.value = ""; }
+    try { obj = await fl.text(); parseBB(obj); const dl = $f("#mk-anims"); if (dl) dl.innerHTML = bbAnimNames(obj).map(n => `<option value="${esc(n)}">`).join(""); } catch (e) { ferr.textContent = "El archivo no es un .bbmodel válido."; obj = null; f.obj.value = ""; }
   };
   $f("[data-c]").onclick = () => m.close();
   f.onsubmit = async e => {
@@ -476,6 +494,7 @@ function editItem(it) {
     if (!(pr >= 0)) return ferr.textContent = "El precio no es válido.";
     const kind = cat === "profile" || cat === "pets" || cat === "furn" ? f.kind.value : "";
     if (cat !== "profile" && cat !== "pets" && cat !== "furn" && !img) return ferr.textContent = "Sube una imagen.";
+    if (kind === "bb" && !(obj || base.model)) return ferr.textContent = "Sube el archivo .bbmodel.";
     if (kind === "bg-img" && !img) return ferr.textContent = "Sube la imagen del fondo.";
     const all = [...shop.values()].filter(i => i.cat === cat), data = { name, cat, price: pr, hidden: f.hidden.checked, order: it ? it.order : (all.length ? Math.max(...all.map(i => i.order)) + 10 : 0) };
     if (f.desc.value.trim()) data.desc = f.desc.value.trim();
@@ -487,15 +506,16 @@ function editItem(it) {
     if (cat === "items" || cat === "hat") data.ench = f.ench.checked;
     data.chestOnly = f.chestOnly.checked;
     if (cat === "items") data.model = !!(obj || (base.model && !f.rmobj.checked));
+    if (kind === "bb") { data.model = true; data.sc = Math.max(.05, Math.min(20, Number(f.sc.value) || 1)); const an = f.anim.value.trim(); if (an) data.anim = an.slice(0, 40); }
     const id = it ? it.id : "i" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), fb = D.fb;
     const sb = f.querySelector("[type=submit]"); sb.disabled = true;
     try {
       await fb.setDoc(fb.doc(D.db, "shop", id), data);
-      if (cat === "items") {
+      if (cat === "items" || kind === "bb") {
         if (obj) { await fb.setDoc(fb.doc(D.db, "shop_models", id), { bb: obj }); modelCache.delete(id); }
         else if (base.model && f.rmobj.checked) { await fb.deleteDoc(fb.doc(D.db, "shop_models", id)); modelCache.delete(id); }
       }
-      imgCache.clear(); await loadShop(true); m.close(); sel = id; renderBook();
+      imgCache.clear(); await loadShop(true); if (kind === "bb") await ensureBB([shop.get(id)], true); m.close(); sel = id; renderBook();
     } catch (er) { console.warn(er); ferr.textContent = "No se pudo guardar" + (er && er.code ? " (" + er.code + ")" : "") + ". ¿Publicaste las reglas nuevas de Firestore?"; sb.disabled = false; }
   };
 }
@@ -570,6 +590,7 @@ export async function inventory(host, { inv = [], equip: eq = {}, mine = false, 
   const list = (Array.isArray(inv) ? inv : []).map(id => shop.get(id)).filter(Boolean);
   if (!list.length) { host.innerHTML = `<p class="muted">${mine ? "Aún no has comprado nada. Visita el Mercado." : "Aún no tiene artículos."}</p>`; return; }
   const order = { items: 0, hat: 1, profile: 2, pets: 3, furn: 4 }, wornOf = it => wornIn(it, eq);
+  await ensureBB(list.filter(it => it.cat === "pets" || it.cat === "furn"));
   list.sort((a, b) => (order[a.cat] ?? 9) - (order[b.cat] ?? 9) || byOrder(a, b));
   host.innerHTML = `<div class="mk-inv">${list.map(it => `<button class="mk-slot${wornOf(it) ? " worn" : ""}" type="button" data-id="${esc(it.id)}" title="${esc(it.name)}"><span class="mk-tw">${thumb(it)}</span><b>${esc(it.name)}</b></button>`).join("")}</div>`;
   host.onclick = e => { const b = e.target.closest(".mk-slot"); if (b) inspect(list, list.findIndex(x => x.id === b.dataset.id), mine, host, { inv, equip: eq, mine, name }); };
@@ -645,7 +666,7 @@ export async function saveRoom(st) {
   await D.fb.updateDoc(D.fb.doc(D.db, "players", u.uid), { equip: eq }); D.patchMe({ equip: eq });
 }
 export const Mercado = {
-  roomOf, saveRoom,
+  roomOf, saveRoom, prepareRoom,
   init(deps) { D = deps; root = document.querySelector("#mk"); },
   async enter() {
     if (!root || !D) return;

@@ -116,17 +116,93 @@ const WIN = {}; Object.keys(VIEWS).forEach(b => { WIN["win-" + b] = { name: "Ven
   const FR = 0xf5f5f5, FD = 0xd2d2d2; bx(g, 1.9, .1, .1, 0, 0, .05, FR); bx(g, 1.9, .1, .1, 0, 1.4, .05, FR); bx(g, .1, 1.5, .1, -.9, 0, .05, FR); bx(g, .1, 1.5, .1, .9, 0, .05, FR); bx(g, .06, 1.3, .06, 0, .1, .05, FR); bx(g, 1.7, .06, .06, 0, .72, .05, FR);
   bx(g, 2.1, .08, .2, 0, -.06, .1, FD);
   const p = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.3), new THREE.MeshBasicMaterial({ map: viewTexture(b), side: THREE.DoubleSide })); p.position.set(0, .75, .025); g.add(p); } }; });
+
+/* ---------------- modelos de Blockbench (.bbmodel): jerarquía de huesos + animaciones ---------------- */
+const CUSTOM = new Map(), D2R = Math.PI / 180, num = (v, d = 0) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
+export const bbVersion = id => CUSTOM.has(id) ? CUSTOM.get(id).ver : null;
+export function bbAnimNames(text) { try { const j = typeof text === "string" ? JSON.parse(text) : text; return (j.animations || []).map(a => a.name).filter(Boolean); } catch (e) { return []; } }
+function bbBoxUv(el, w, h, d) {
+  const [u, v] = el.uv_offset || [0, 0];
+  return { north: [u + d, v + d, u + d + w, v + d + h], east: [u, v + d, u + d, v + d + h], south: [u + 2 * d + w, v + d, u + 2 * d + 2 * w, v + d + h], west: [u + d + w, v + d, u + 2 * d + w, v + d + h], up: [u + d, v, u + d + w, v + d], down: [u + d + w, v, u + d + 2 * w, v + d] };
+}
+function sampleCh(kf, t, dflt) {
+  if (!kf || !kf.length) return dflt; if (t <= kf[0].t) return kf[0].v; const last = kf[kf.length - 1]; if (t >= last.t) return last.v;
+  let i = 0; while (i < kf.length - 2 && kf[i + 1].t <= t) i++; const a = kf[i], b = kf[i + 1]; if (a.i === "step") return a.v;
+  let f = (t - a.t) / ((b.t - a.t) || 1); if (a.i === "catmullrom" || a.i === "bezier") f = f * f * (3 - 2 * f); return [lerp(a.v[0], b.v[0], f), lerp(a.v[1], b.v[1], f), lerp(a.v[2], b.v[2], f)];
+}
+function bbInstance(def, isPet) {
+  const j = def.j, res = j.resolution || { width: j.texture_width || 16, height: j.texture_height || 16 };
+  if (!def.mats) def.mats = (j.textures || []).map(t => { const im = new Image(), tex = new THREE.Texture(im); tex.magFilter = tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.colorSpace = THREE.SRGBColorSpace; im.onload = () => { tex.needsUpdate = true; }; im.src = t.source || ""; return { mat: new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide, transparent: true, alphaTest: .1 }), uw: t.uv_width || res.width || 16, vh: t.uv_height || res.height || 16 }; });
+  const grey = new THREE.MeshLambertMaterial({ color: 0xb0b0b8, side: THREE.DoubleSide }), matList = [...def.mats.map(m => m.mat), grey], nodes = new Map(), els = new Map((j.elements || []).map(e => [e.uuid, e])), used = new Set();
+  const track = o => ({ o, p: o.position.clone(), r: o.rotation.clone(), s: o.scale.clone() });
+  function cubeMesh(el, po) {
+    if ((el.type && el.type !== "cube") || el.visibility === false) return null;
+    const f = el.from || [0, 0, 0], to = el.to || [0, 0, 0], inf = el.inflate || 0, org = el.origin || [0, 0, 0], rot = el.rotation || [0, 0, 0];
+    const A = [f[0] - inf, f[1] - inf, f[2] - inf], B = [to[0] + inf, to[1] + inf, to[2] + inf], uvs = el.box_uv && !el.faces ? bbBoxUv(el, to[0] - f[0], to[1] - f[1], to[2] - f[2]) : null;
+    const C = { north: [[B[0], B[1], A[2]], [A[0], B[1], A[2]], [B[0], A[1], A[2]]], south: [[A[0], B[1], B[2]], [B[0], B[1], B[2]], [A[0], A[1], B[2]]], east: [[B[0], B[1], B[2]], [B[0], B[1], A[2]], [B[0], A[1], B[2]]], west: [[A[0], B[1], A[2]], [A[0], B[1], B[2]], [A[0], A[1], A[2]]], up: [[A[0], B[1], A[2]], [B[0], B[1], A[2]], [A[0], B[1], B[2]]], down: [[A[0], A[1], B[2]], [B[0], A[1], B[2]], [A[0], A[1], A[2]]] };
+    const pos = [], uv = [], idx = [], groups = []; let n = 0;
+    for (const dir of Object.keys(C)) {
+      const fc = (el.faces && el.faces[dir]) || null, u = fc ? fc.uv : uvs && uvs[dir]; if (!u || (fc && fc.texture === null)) continue;
+      const ti = fc && Number.isInteger(fc.texture) ? fc.texture : 0, tx = def.mats[ti], mi = tx ? ti : matList.length - 1, uw = tx ? tx.uw : 16, vh = tx ? tx.vh : 16;
+      const c = C[dir]; let q = [c[0], c[1], [c[1][0] + c[2][0] - c[0][0], c[1][1] + c[2][1] - c[0][1], c[1][2] + c[2][2] - c[0][2]], c[2]];
+      for (let k = 0; k < ((fc && fc.rotation) || 0) / 90; k++) q = [q[3], q[0], q[1], q[2]];
+      const uc = [[u[0], u[1]], [u[2], u[1]], [u[2], u[3]], [u[0], u[3]]];
+      q.forEach((p, k) => { pos.push(p[0] - org[0], p[1] - org[1], p[2] - org[2]); uv.push(uc[k][0] / uw, 1 - uc[k][1] / vh); });
+      groups.push([idx.length, 6, mi]); idx.push(n, n + 2, n + 1, n, n + 3, n + 2); n += 4;
+    }
+    if (!n) return null;
+    const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); geo.setIndex(idx); geo.computeVertexNormals(); groups.forEach(g => geo.addGroup(...g));
+    const m = new THREE.Mesh(geo, matList); m.position.set(org[0] - po[0], org[1] - po[1], org[2] - po[2]); m.rotation.set(rot[0] * D2R, rot[1] * D2R, rot[2] * D2R, "ZYX"); return m;
+  }
+  const root = new THREE.Group();
+  const walk = (list, parent, po) => (list || []).forEach(nd => {
+    if (typeof nd === "string") { const el = els.get(nd); const m = el && cubeMesh(el, po); if (m) { parent.add(m); nodes.set(nd, track(m)); used.add(nd); } }
+    else if (nd && typeof nd === "object") { const g = new THREE.Group(), o = nd.origin || [0, 0, 0], r = nd.rotation || [0, 0, 0]; g.position.set(o[0] - po[0], o[1] - po[1], o[2] - po[2]); g.rotation.set(r[0] * D2R, r[1] * D2R, r[2] * D2R, "ZYX"); parent.add(g); nodes.set(nd.uuid, track(g)); walk(nd.children, g, o); }
+  });
+  walk(j.outliner, root, [0, 0, 0]);
+  for (const [u, el] of els) if (!used.has(u)) { const m = cubeMesh(el, [0, 0, 0]); if (m) { root.add(m); nodes.set(u, track(m)); } }
+  const anims = (j.animations || []).map(a => ({ name: a.name || "animación", loop: a.loop || "once", len: num(a.length), tracks: Object.entries(a.animators || {}).map(([u, an]) => { const nd = nodes.get(u); if (!nd) return null; const ch = {}; (an.keyframes || []).forEach(k => { const p = (k.data_points || [])[0] || {}, d = k.channel === "scale" ? 1 : 0; (ch[k.channel] = ch[k.channel] || []).push({ t: num(k.time), v: [num(p.x, d), num(p.y, d), num(p.z, d)], i: k.interpolation || "linear" }); }); Object.values(ch).forEach(l => l.sort((x, y) => x.t - y.t)); return { nd, ch }; }).filter(Boolean) })).filter(a => a.tracks.length);
+  const inner = new THREE.Group(); inner.add(root); inner.rotation.y = Math.PI; inner.scale.setScalar(def.sc / 16);       // el frente de Blockbench (norte) mira hacia +z
+  const g = new THREE.Group(); g.add(inner); g.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(g), ctr = box.getCenter(new THREE.Vector3()); inner.position.set(-ctr.x, -box.min.y, -ctr.z); g.updateMatrixWorld(true);
+  let cur = null, t = 0;
+  const reset = () => nodes.forEach(n => { n.o.position.copy(n.p); n.o.rotation.copy(n.r); n.o.scale.copy(n.s); });
+  function choose(moving) {
+    if (!anims.length) return null; const by = re => anims.find(a => re.test(a.name));
+    if (def.anim) { const a = anims.find(x => x.name === def.anim); if (a) return a; }
+    if (isPet) return (moving ? by(/walk|run|move|camin|corre/i) : by(/idle|stand|rest|esper/i)) || (moving ? null : anims.find(a => a.loop === "loop")) || anims.find(a => a.loop === "loop") || anims[0];
+    return by(/idle|loop|ambient/i) || anims.find(a => a.loop === "loop") || null;
+  }
+  function tick(dt, moving) {
+    const a = choose(moving); if (a !== cur) { reset(); cur = a; t = 0; } if (!cur) return;
+    t += dt; let tt = t; if (cur.len > 0) tt = cur.loop === "loop" ? t % cur.len : Math.min(t, cur.len);
+    for (const { nd, ch } of cur.tracks) {
+      const p = sampleCh(ch.position, tt, [0, 0, 0]), r = sampleCh(ch.rotation, tt, [0, 0, 0]), s = sampleCh(ch.scale, tt, [1, 1, 1]);
+      nd.o.position.set(nd.p.x + p[0], nd.p.y + p[1], nd.p.z + p[2]); nd.o.rotation.set(nd.r.x + r[0] * D2R, nd.r.y + r[1] * D2R, nd.r.z + r[2] * D2R, "ZYX"); nd.o.scale.set(nd.s.x * s[0], nd.s.y * s[1], nd.s.z * s[2]);
+    }
+  }
+  return { g, tick, box };
+}
+export function registerBB(id, text, o = {}) {
+  try {
+    const j = JSON.parse(text); if (!j || !Array.isArray(j.elements)) return false;
+    const def = { name: o.name || "Modelo", bb: true, id, j, sc: clamp(Number(o.sc) || 1, .05, 20), anim: o.anim || "", place: "floor" }, m = bbInstance(def, false), sz = m.box.getSize(new THREE.Vector3());
+    def.w = Math.max(.5, Math.ceil(sz.x / .25 - .01) * .25); def.d = Math.max(.5, Math.ceil(sz.z / .25 - .01) * .25);
+    CUSTOM.set(id, { def, ver: text.length + "|" + def.sc + "|" + def.anim }); for (const k of [...thumbs.keys()]) if (k.includes("bb:" + id + ":")) thumbs.delete(k); return true;
+  } catch (e) { console.warn("bbmodel:", e); return false; }
+}
 const texKindDef = k => { const [pre, key] = k.split("-"); return (pre === "floor" || pre === "wall") && TEXD[key] ? { tex: true, pre, key, name: (pre === "floor" ? "Piso: " : "Pared: ") + TEXD[key].name } : null; };
-const defOf = (cat, k) => cat === "pets" ? PETS[k] : (FURN[k] || WIN[k] || texKindDef(k));
+const defOf = (cat, k) => String(k).startsWith("bb:") ? (CUSTOM.get(k.slice(3)) || {}).def : cat === "pets" ? PETS[k] : (FURN[k] || WIN[k] || texKindDef(k));
 export const hasKind = (cat, k) => !!defOf(cat, k);
 export const furnKinds = () => Object.entries(FURN).map(([k, v]) => [k, v.name]);
 export const winKinds = () => Object.entries(WIN).map(([k, v]) => [k, v.name]);
 export const floorKinds = () => FLOORS.map(k => ["floor-" + k, "Piso: " + TEXD[k].name]);
 export const wallKinds = () => WALLS.map(k => ["wall-" + k, "Pared: " + TEXD[k].name]);
-export const kindGroup = k => FURN[k] ? "furn" : WIN[k] ? "win" : k.startsWith("floor-") ? "floor" : k.startsWith("wall-") ? "wall" : "furn";
+export const kindGroup = k => k.startsWith("bb:") ? "furn" : FURN[k] ? "furn" : WIN[k] ? "win" : k.startsWith("floor-") ? "floor" : k.startsWith("wall-") ? "wall" : "furn";
 export const petKinds = () => Object.entries(PETS).map(([k, v]) => [k, v.name]);
 function buildModel(cat, kind) {
-  const def = defOf(cat, kind); if (!def) return null; const g = new THREE.Group();
+  const def = defOf(cat, kind); if (!def) return null; if (def.bb) { const m = bbInstance(def, cat === "pets"); return { g: m.g, def, tick: m.tick }; }
+  const g = new THREE.Group();
   if (def.tex) {
     const sd = L(def.pre === "floor" ? 0x5a4128 : 0xc9cfd0);
     if (def.pre === "floor") { const m = new THREE.Mesh(BOX, [sd, sd, new THREE.MeshLambertMaterial({ map: texFor(def.key, 3, 3) }), sd, sd, sd]); m.scale.set(3, .3, 3); m.position.y = .15; g.add(m); }
@@ -157,7 +233,7 @@ export function modelThumb(cat, kind, size = 112) {
   try {
     const m = buildModel(cat, kind); if (!m) return "";
     if (!thumbR) { thumbR = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true }); thumbR.setPixelRatio(1); }
-    thumbR.setSize(size, size, false); const sc = new THREE.Scene(); lights(sc); sc.add(m.g);
+    thumbR.setSize(size, size, false); const sc = new THREE.Scene(); lights(sc); sc.add(m.g); if (m.tick) m.tick(.001, false);
     const box = new THREE.Box3().setFromObject(m.g), ctr = box.getCenter(new THREE.Vector3()), r = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z) * 1.15 + .2, cam = isoCamera(1, r * 1.35);
     cam.position.copy(ctr).addScaledVector(cam.userData.dir, 20); cam.lookAt(ctr); m.g.rotation.y = .5; thumbR.setClearColor(0, 0); thumbR.render(sc, cam); url = thumbR.domElement.toDataURL("image/png");
   } catch (e) { console.warn("miniatura:", e); }
@@ -171,7 +247,7 @@ export function modelPreview(canvas, cat, kind) {
   const box = new THREE.Box3().setFromObject(m.g), ctr = box.getCenter(new THREE.Vector3()); m.g.position.sub(ctr); m.g.position.y += 0;
   const rr = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z), cam = isoCamera(w / h, Math.max(1.6, rr * 1.7)); cam.position.copy(cam.userData.dir).multiplyScalar(20); cam.lookAt(0, 0, 0);
   let drag = false, lx = 0, spin = 0; canvas.onpointerdown = e => { drag = true; lx = e.clientX; canvas.setPointerCapture(e.pointerId); }; canvas.onpointermove = e => { if (drag) { spin += (e.clientX - lx) * .012; lx = e.clientX; } }; canvas.onpointerup = () => { drag = false; };
-  const loop = () => { if (stopped || !canvas.isConnected) return; raf = requestAnimationFrame(loop); if (!drag) spin += .008; pv.rotation.y = spin; if (m.g.userData.squash) m.g.userData.squash.scale.y = .5 + Math.sin(performance.now() / 300) * .04; r.render(sc, cam); };
+  const loop = () => { if (stopped || !canvas.isConnected) return; raf = requestAnimationFrame(loop); if (!drag) spin += .008; pv.rotation.y = spin; if (m.g.userData.squash) m.g.userData.squash.scale.y = .5 + Math.sin(performance.now() / 300) * .04; if (m.tick) m.tick(.016, true); r.render(sc, cam); };
   loop(); return { stop() { stopped = true; cancelAnimationFrame(raf); r.dispose(); } };
 }
 
@@ -224,7 +300,7 @@ export function createRoom(canvas, o = {}) {
   }
   function addItem(id, ly) {
     const kind = kindOf(id); if (!kind || placed.has(id)) return null; const m = buildModel("furn", kind); if (!m || m.def.tex) return null;
-    const P = { id, kind, def: m.def, g: m.g, x: 4, z: 4, r: 0, side: "N", p: 4 }; m.g.userData.pid = id; scene.add(m.g); placed.set(id, P);
+    const P = { id, kind, def: m.def, g: m.g, tick: m.tick, x: 4, z: 4, r: 0, side: "N", p: 4 }; m.g.userData.pid = id; scene.add(m.g); placed.set(id, P);
     let ok = false;
     if (ly && typeof ly === "object") { if (P.def.win) { if (ly.w === "N" || ly.w === "W") { P.side = ly.w; P.p = clamp(Number(ly.p) || 4, 1, ROOM - 1); } } else { P.x = Number(ly.x) || 4; P.z = Number(ly.z) || 4; P.r = ((Math.round(Number(ly.r)) || 0) % 4 + 4) % 4; } ok = valid(P); }
     if (!ok) autoPlace(P); apply(P); rebuild(); return P;
@@ -246,7 +322,7 @@ export function createRoom(canvas, o = {}) {
   loadSkin(skinSources).then(i => { if (!alive || !i) return; img = i; set = createFigureSet(i, { slim, k: 3, cos }); });
   /* ----- mascota 3D ----- */
   let petG = null; const ps = { x: 5.5, z: 5.5, tx: 5.5, tz: 5.5, wait: 1, hop: 0, t: 0, yaw: 0 }; let pShadow = null;
-  if (pet && PETS[pet]) { const m = buildModel("pets", pet); petG = new THREE.Group(); petG.add(m.g); petG.userData.sq = m.g.userData.squash; scene.add(petG); pShadow = shadow(.26); }
+  let petTick = null; if (pet && defOf("pets", pet)) { const m = buildModel("pets", pet); petTick = m.tick; petG = new THREE.Group(); petG.add(m.g); petG.userData.sq = m.g.userData.squash; scene.add(petG); pShadow = shadow(.26); }
   /* ----- estado inicial ----- */
   let items0 = o.items || []; if (test && !items0.length) { items0 = TEST_FURN.map(k => ({ id: "t_" + k, kind: k })); }
   let alive = true, raf = 0, last = 0;
@@ -261,7 +337,7 @@ export function createRoom(canvas, o = {}) {
   const walkTo = () => { const s = spot(st.x, st.z, .34); if (!s) return setMode("idle"); st.tx = s[0]; st.tz = s[1]; setMode("walk"); };
   const pick = () => { const r = Math.random(); if (r < .6) walkTo(); else if (r < .8) setMode("dance"); else setMode("idle"); };
   function update(dt) {
-    st.t += dt;
+    st.t += dt; for (const P of placed.values()) if (P.tick) P.tick(dt, false);
     if (st.mode === "walk") {
       const dx = st.tx - st.x, dz = st.tz - st.z, d = Math.hypot(dx, dz), step = 1.15 * dt; const sd = dx - dz; if (Math.abs(sd) > .02) st.flip = sd > 0;
       if (d <= step) { st.x = st.tx; st.z = st.tz; setMode("idle"); } else { st.x += dx / d * step; st.z += dz / d * step; st.a += dt * ANIMS.walk.fps; }
@@ -272,7 +348,7 @@ export function createRoom(canvas, o = {}) {
       ps.t += dt; const dx = ps.tx - ps.x, dz = ps.tz - ps.z, d = Math.hypot(dx, dz); ps.hop = Math.max(0, ps.hop - dt * 2.4);
       if (d > .05) { const step = .8 * dt; ps.x += dx / d * Math.min(step, d); ps.z += dz / d * Math.min(step, d); ps.yaw = Math.atan2(dx, dz); }
       else { ps.wait -= dt; if (ps.wait <= 0) { ps.wait = rnd(1.5, 4); const s = editing ? null : spot(ps.x, ps.z, .3, 12); if (s) { ps.tx = s[0]; ps.tz = s[1]; } } }
-      const mv = d > .05 ? 1 : 0, bob = Math.abs(Math.sin(ps.t * 9)) * .06 * mv + Math.sin(Math.PI * Math.min(1, ps.hop)) * .45 * (ps.hop > 0 ? 1 : 0);
+      if (petTick) petTick(dt, d > .05); const mv = d > .05 ? 1 : 0, bob = Math.abs(Math.sin(ps.t * 9)) * .06 * mv + Math.sin(Math.PI * Math.min(1, ps.hop)) * .45 * (ps.hop > 0 ? 1 : 0);
       petG.position.set(ps.x, bob, ps.z); petG.rotation.y = lerp(petG.rotation.y, ps.yaw, .2); petG.rotation.z = Math.sin(ps.t * 9) * .06 * mv; if (petG.userData.sq) petG.userData.sq.scale.y = .5 + Math.sin(ps.t * (mv ? 9 : 2)) * (mv ? .07 : .02);
       pShadow.position.set(ps.x, .015, ps.z); pShadow.scale.setScalar(1 - bob * .6);
     }
